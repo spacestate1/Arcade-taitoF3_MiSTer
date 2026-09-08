@@ -35,9 +35,9 @@ import zipfile
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(REPO, "releases", "experimental")
 
-SLOT = [("maincpu", 0x200000), ("audiocpu", 0x80000), ("sprites", 0x400000),
-        ("sprites_hi", 0x200000), ("tilemap", 0x400000), ("tilemap_hi", 0x200000),
-        ("ensoniq", 0x400000)]
+SLOT = {"maincpu": 0x200000, "audiocpu": 0x80000, "sprites": 0x400000,
+        "sprites_hi": 0x200000, "tilemap": 0x400000, "tilemap_hi": 0x200000,
+        "ensoniq": 0x400000}
 ROMDIR = os.environ.get("F3_ROMS", "/storage02/roms/mame")
 
 
@@ -47,6 +47,19 @@ def sizes(zf):
 
 
 def emit(game, spec, out):
+    # A game may widen a region slot. Ensoniq is the LAST region in the map,
+    # so a game using all 8 MB of it simply streams 4 MB more than the rest
+    # and every earlier MRA is untouched -- which is the whole reason the
+    # region was grown there rather than in the middle.
+    # "--" is ILLEGAL inside an XML comment and every note here lands in one.
+    # This has broken an MRA twice by hand, and the failure is silent until
+    # something tries to parse it, so sanitise rather than remember.
+    game = dict(game)
+    game["note"] = game["note"].replace("--", "-")
+
+    slots = dict(SLOT)
+    for k, v in game.get("slots", {}).items():
+        slots[k] = v
     zf = zipfile.ZipFile(f"{ROMDIR}/{game['set']}.zip")
     sz, crc = sizes(zf)
 
@@ -60,7 +73,7 @@ def emit(game, spec, out):
 
     lines = []
     total = 0
-    for region, slot in SLOT:
+    for region, slot in slots.items():
         blocks = spec.get(region, [])
         lines.append(f"\n    <!-- {region} -->" if blocks else
                      f"\n    <!-- {region}: no ROM in this set -->")
@@ -95,7 +108,7 @@ def emit(game, spec, out):
                 lines.append(f'    <part name="{n}" crc="{crc[n]:08x}"/>')
                 used += sz[n]
             elif kind == "pad":
-                lines.append(f'    <!-- {b[2]} -->')
+                lines.append(f'    <!-- {b[2].replace("--", "-")} -->')
                 lines.append(f'    <part repeat="{b[1]}">00</part>')
                 used += b[1]
             else:
@@ -257,6 +270,41 @@ GAMES = [
    "tilemap":[("il32w",["d87-06.bin","d87-17.bin"])],
    "tilemap_hi":[("raw","d87-08.bin")],
    "ensoniq":[("raw","d87-01.bin"),("raw","d87-02.bin")]}),
+(dict(set="pbobble3", name="Puzzle Bobble 3", year="1996",
+       rot="horizontal", cfg1=0x47, cfg2=0x01, vis=3, ext=0, id=9,
+       slots={"ensoniq": 0x800000},
+       btn="Shoot,-,-,-,-,-,Start,Coin,Service,Pause",
+       note=("Horizontal (MAME ROT0), extend=0 as Puzzle Bobble 2. THE FIRST "
+             "SETS TO USE THE WHOLE 8 MB ENSONIQ REGION, so this MRA streams "
+             "22.5 MB where every earlier one streams 18.5. MAME gives them a "
+             "16 MB sample region against Ray Force's 8, which makes taito_en's "
+             "otisbank mask 7 rather than 3 -- three bank bits, not two. That "
+             "one bit is the whole reason these games did not run before; they "
+             "never needed a bigger MAP, only a wider bank. Bank 0 is empty in "
+             "MAME and is padded here so banks 1-3 land on their boundaries.")),
+  {"maincpu":[("il32",["e29-12.rom","e29-11.rom","e29-10.rom","e29-16.rom"])],
+   "audiocpu":[("il16",["e29-13.rom","e29-14.rom"])],
+   "sprites":[("il16",["e29-02.rom","e29-01.rom"])],
+   "sprites_hi":[],
+   "tilemap":[("il32w",["e29-08.rom","e29-07.rom"])],
+   "tilemap_hi":[("raw","e29-06.rom")],
+   "ensoniq":[("pad",0x200000,"ensoniq bank 0 is empty in MAME"),
+              ("raw","e29-03.rom"),("raw","e29-04.rom"),("raw","e29-05.rom")]}),
+
+ (dict(set="pbobble4", name="Puzzle Bobble 4", year="1997",
+       rot="horizontal", cfg1=0x87, cfg2=0x01, vis=3, ext=0, id=10,
+       slots={"ensoniq": 0x800000},
+       btn="Shoot,-,-,-,-,-,Start,Coin,Service,Pause",
+       note="Horizontal (MAME ROT0), extend=0. Same 16 MB sample region and 3-bit otisbank mask as Puzzle Bobble 3; see that MRA for the detail. Streams 22.5 MB.",
+       ),
+  {"maincpu":[("il32",["e49-12.20","e49-11.19","e49-10.18","e49-16.17"])],
+   "audiocpu":[("il16",["e49-13.32","e49-14.33"])],
+   "sprites":[("il16",["e49-02","e49-01"])],
+   "sprites_hi":[],
+   "tilemap":[("il32w",["e49-08","e49-07"])],
+   "tilemap_hi":[("raw","e49-06")],
+   "ensoniq":[("pad",0x200000,"ensoniq bank 0 is empty in MAME"),
+              ("raw","e49-03"),("raw","e49-04"),("raw","e49-05")]}),
 ]
 
 # explicit filenames: deriving one from the display name silently overwrote
@@ -264,7 +312,8 @@ GAMES = [
 FILE = {"spcinv95": "Space Invaders '95", "cleopatr": "Cleopatra Fortune",
         "twinqix": "Twin Qix", "recalh": "Recalhorn", "qtheater": "Quiz Theater",
         "popnpop": "Pop 'n Pop", "gekiridn": "Gekirindan",
-        "dariusgx": "Darius Gaiden Extra Version"}
+        "dariusgx": "Darius Gaiden Extra Version",
+        "pbobble3": "Puzzle Bobble 3", "pbobble4": "Puzzle Bobble 4"}
 
 def target(g):
     return os.path.join(OUT, FILE[g["set"]] + ".mra")
