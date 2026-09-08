@@ -49,6 +49,7 @@ what each lever costs. Read it before adding anything to the RTL.
    Today that is `Rayforce_20260907.rbf` (build stamp `07213908`, the one
    the sprite-corruption fix went into). The older bitstreams in that
    directory predate the per-game config byte and do not match these MRAs.
+   [RELEASE-NOTES.md](RELEASE-NOTES.md) says what changed in each.
 2. Copy the `.mra` files you want to `/media/fat/_Arcade/`.
 3. Put the MAME ROM zips in `/media/fat/games/mame/`. ROMs are matched by
    CRC, so a merged set is fine.
