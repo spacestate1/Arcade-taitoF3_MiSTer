@@ -83,9 +83,16 @@ most of the games below.
   Cleopatra Fortune and Twin Qix.
 - Kirameki Star Road's sound-ROM banking is implemented, but that game still
   has no MRA and does not run.
-- Known problem, unchanged: some sprite rows drop on Ray Force's zone 2
-  boss, and Darius Gaiden renders some background objects in the wrong
-  colours until the game rewrites its palette.
+- Known problems in this build, by game:
+  - **Ray Force** still drops sprite rows on the zone 2 boss.
+  - **Darius Gaiden** renders some background objects in the wrong colours
+    until the game rewrites its palette, which it does as the first boss
+    arrives. Reported from play.
+  - **Bubble Memories** asks for the TEST switch on a fresh card; turn on
+    Service Mode in the OSD and reset, once.
+  - **Kirameki Star Road** still does not run and has no MRA.
+  - The 29 games added here have not been played through. They boot, render
+    and take a coin.
 
 ## Rayforce_20260907.rbf
 

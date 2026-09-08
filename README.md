@@ -38,16 +38,48 @@ layout changed when this became a general F3 core; mismatched files fail the
 
 ## Known problems
 
-- **Sprite rows drop on the zone 2 boss.** The record store holds 8,192 rows
-  a frame; the boss asks for ~10,800. Missing rows, not corruption. The full
-  story of the corruption this replaced — nine days, ~30 instruments, one
-  wrong RAM size — is in [SPRITE-CORRUPTION.md](SPRITE-CORRUPTION.md).
-- **High scores save but do not restore.** The table reaches the `.nvm` file
-  correctly; putting it back on boot does not work yet.
-- **The ES5510 DSP is not emulated**, only its host port. The dry mix
-  correlates 0.95–0.99 with MAME, so the difference is small.
-- **NVRAM only saves when you open the OSD.** That is MiSTer, not the core.
-- **Untested on hardware:** Gunlock, Ray Force (Japan), the 60 Hz option.
+Each of these names the game it affects. Anything not listed here is a game
+nobody has played far enough to find a fault in — see the note on what
+"confirmed" means in [releases/experimental](releases/experimental/README.md).
+
+- **RAY FORCE — sprite rows drop on the zone 2 boss.** The record store holds
+  8,192 rows a frame; that boss asks for ~10,800. Rows go missing from the
+  bottom of the frame, so the boss draws as broken lines. Missing rows, not
+  corruption — the self-test's `SPR REC : DROP` counts them. The full story
+  of the corruption this replaced — nine days, ~30 instruments, one wrong RAM
+  size — is in [SPRITE-CORRUPTION.md](SPRITE-CORRUPTION.md).
+- **DARIUS GAIDEN — some background objects render in the wrong colours**
+  until the game rewrites its palette. Reported from play: the big foreground
+  towers early in the first level are red and gold where they should be
+  blue-grey steel, and the SAME objects correct themselves on screen as the
+  boss arrives. Measured: the sprites' positions, zoom and tile codes are all
+  right and only the colour is wrong; the palette writes do reach palette RAM;
+  and the core's 68020 completes 600 spin-loop reads per frame where real
+  hardware does 764, so a palette block-copy budgeted against real hardware
+  may not finish in the frames the game expects. Not proven.
+- **BUBBLE MEMORIES — asks for the TEST switch on a fresh card.** Its 93C46
+  EEPROM has never been written, so it boots to "BACKUP DATA FAILED". Turn on
+  Service Mode in the OSD and reset, once. Not a fault in the game.
+- **KIRAMEKI STAR ROAD does not run and has no MRA.** It is the only F3 game
+  whose sound ROM is banked; the core implements that now, but the set's 4 MB
+  audiocpu region still needs a layout working out.
+- **SPACE INVADERS DX has no MRA** — its ROM is not on the shelf here. It is
+  the fourth 12-bit palette game.
+- **ALL GAMES — high scores save but do not restore.** The table reaches the
+  `.nvm` file correctly; putting it back on boot does not work yet.
+- **ALL GAMES — the ES5510 DSP is not emulated**, only its host port. The dry
+  mix correlates 0.95–0.99 with MAME, so the difference is small.
+- **ALL GAMES — NVRAM only saves when you open the OSD.** That is MiSTer, not
+  the core.
+- **DARIUS GAIDEN and DARIUS GAIDEN EXTRA use the pixel (pivot) layer**, which
+  this core mirrors as an 8 KB window rather than implementing as real RAM.
+  Measured to be entirely zero in attract and zone A, so it may cost nothing;
+  it has never been proved either way.
+- **Never loaded on hardware:** Gunlock, Ray Force (Japan), and the debug
+  variants (`Ray Force (zone 2)`, `Gunlock (zone 2)`, `Darius Gaiden (write
+  ring)`). The 60 Hz option is untested on every game.
+- **The 29 games added 2026-09-08 have never been played through.** They boot,
+  render their attract screen and take a coin. That is all that is known.
 
 The FPGA is 95–98 % full. [RESOURCES.md](RESOURCES.md) says where it goes and
 what each lever costs. Read it before adding anything to the RTL.
