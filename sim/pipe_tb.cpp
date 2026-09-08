@@ -139,6 +139,14 @@ int main(int argc, char** argv) {
 
     std::vector<uint32_t> fb(320 * V_H, 0);
     int frames_done = 0;
+    // FRAME-TO-FRAME SNAPSHOTS. The comparison below checks only the LAST
+    // frame rendered, which is blind to the defect the board actually shows:
+    // the picture ALTERNATES between two states on a static screen, so
+    // whichever frame lands last decides whether the bench passes. With the
+    // VRAM static every frame after priming must be IDENTICAL to the one
+    // before it -- any difference is a double-banked structure in the draw
+    // serving different content on alternate frames.
+    std::vector<std::vector<uint32_t>> snaps;
 
     // ---- DDR3 model for the sprite framebuffer --------------------------
     // rf_spr_fb writes finished sprite lines here and reads last frame's back
@@ -251,7 +259,7 @@ int main(int argc, char** argv) {
         if (div == 7) {
             if (hcnt == H_TOTAL - 1) {
                 hcnt = 0;
-                if (vcnt == V_TOTAL - 1) { vcnt = 0; frames_done++; } else vcnt++;
+                if (vcnt == V_TOTAL - 1) { vcnt = 0; frames_done++; snaps.push_back(fb); } else vcnt++;
             } else hcnt++;
         }
         div = (div + 1) & 7;
@@ -259,6 +267,7 @@ int main(int argc, char** argv) {
     };
 
     t->vis_mode = VIS_MODE;
+    { const char* rc = getenv("F3_ROWCAP"); t->row_cap = rc ? atoi(rc) : 0; }
     // F3_EXTEND=0 for a 32x32-playfield set (Puzzle Bobble, Darius Gaiden);
     // every game with dumps in this tree today is extend=1
     { const char* e = getenv("F3_EXTEND"); t->extend = (e && !strcmp(e, "0")) ? 0 : 1; }
@@ -286,13 +295,45 @@ int main(int argc, char** argv) {
     // through frame_end (raster 0 of the next frame) so the diagnostics
     // printed are frame 3's -- the frame compared below -- not frame 2's
     for (int i = 0; i < 4; i++) step();
-    printf("dbg_lines %08x dbg_fetch %08x dbg_max %08x dbg_nz %08x dbg_spr %08x dbg_rec %08x dbg_sfetch %08x  (mix:build fetch:pixnz maxfetch:maxbuild tilenz:pf:pal sprmax:late recs:dropped)\n",
-           t->dbg_lines, t->dbg_fetch, t->dbg_max, t->dbg_nz, t->dbg_spr, t->dbg_rec, t->dbg_sfetch);
+    printf("dbg_lines %08x dbg_fetch %08x dbg_max %08x dbg_nz %08x dbg_spr %08x dbg_rec %08x dbg_sfetch %08x dbg_sprpix %08x dbg_mixpix %08x  (mix:build fetch:pixnz maxfetch:maxbuild tilenz:pf:pal sprmax:late recs:dropped)\n",
+           t->dbg_lines, t->dbg_fetch, t->dbg_max, t->dbg_nz, t->dbg_spr, t->dbg_rec, t->dbg_sfetch, t->dbg_sprpix, t->dbg_mixpix);
 
     FILE* o = fopen(outp, "wb");
     fprintf(o, "P6\n320 %d\n255\n", V_H);
     for (auto v : fb) { unsigned char p[3] = {(unsigned char)(v >> 16), (unsigned char)(v >> 8), (unsigned char)v}; fwrite(p, 1, 3, o); }
     fclose(o);
+
+    // ---- frame-to-frame stability, with the VRAM static ------------------
+    // Priming frames are skipped: the sprite ring and the framebuffer both
+    // need a frame or two before their content means anything.
+    const int PRIME = 2;   // include the priming transitions: a frame_start landing mid-draw is exactly the abandoned-line case
+    int unstable = 0;
+    printf("\n-- frame-to-frame stability (static VRAM: every frame must equal the last) --\n");
+    for (size_t f = PRIME; f < snaps.size(); f++) {
+        long diff = 0; int fy = -1, fx = -1;
+        for (int sy = V_START; sy < V_END; sy++)
+            for (int x = 0; x < 320; x++) {
+                size_t i = (size_t)(sy - V_START) * 320 + x;
+                if (snaps[f][i] != snaps[f-1][i]) {
+                    diff++;
+                    if (fy < 0) { fy = sy; fx = x; }
+                }
+            }
+        printf("   frame %zu vs %zu: %6ld pixels differ%s\n", f, f-1, diff,
+               diff ? "   <-- ALTERNATING" : "");
+        if (diff) {
+            unstable++;
+            printf("        first difference at line %d, x %d: %06x vs %06x\n",
+                   fy, fx, snaps[f][(size_t)(fy-V_START)*320+fx],
+                        snaps[f-1][(size_t)(fy-V_START)*320+fx]);
+        }
+    }
+    if (unstable)
+        printf("   %d frame pair(s) differ with STATIC VRAM -- the draw is not\n"
+               "   deterministic frame to frame. This is the board's A/B flicker.\n", unstable);
+    else
+        printf("   stable: every frame after priming is identical to the one before\n");
+    printf("\n");
 
     int bad = 0, total = 0, shown = 0;
     for (int sy = V_START; sy < V_END; sy++) {

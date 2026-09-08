@@ -79,6 +79,9 @@ module pipe_top (
     input  logic        ddr_dout_ready,
 
     output logic [31:0] dbg_sfetch,
+    output logic [31:0] dbg_sprpix,
+    output logic [31:0] dbg_mixpix,
+    input  logic  [1:0] row_cap,
     output logic [31:0] dbg_spr,
     output logic [31:0] dbg_rec,
     input  logic  [1:0] vis_mode,
@@ -93,6 +96,9 @@ module pipe_top (
     logic        b_lo_req, b_lo_ready, b_hi_req, b_hi_ready;
 
     rf_video_pipe pipe (
+        .spr_wr_stb(1'b0),   // no CPU in the bench: sprite RAM is a static
+                             // snapshot, which is exactly why it cannot see the tear
+        .dbg_tear(),
         .clk(clk), .reset(reset), .clk_ram(clk_ram),
         .div(div), .hcnt(hcnt), .vcnt(vcnt),
         .hblank(hblank), .vblank(vblank), .rate_60(rate_60),
@@ -114,7 +120,7 @@ module pipe_top (
         .rgb(rgb),
         .dbg_lines(dbg_lines), .dbg_fetch(dbg_fetch),
         .dbg_max(dbg_max), .dbg_nz(dbg_nz), .dbg_spr(dbg_spr), .dbg_rec(dbg_rec),
-        .dbg_sfetch(dbg_sfetch),
+        .dbg_sfetch(dbg_sfetch), .dbg_sprpix(dbg_sprpix), .dbg_mixpix(dbg_mixpix), .row_cap(row_cap),
         .ddr_burstcnt(ddr_burstcnt), .ddr_addr(ddr_addr), .ddr_din(ddr_din),
         .ddr_be(ddr_be), .ddr_we(ddr_we), .ddr_rd(ddr_rd),
         .ddr_busy(ddr_busy), .ddr_dout(ddr_dout), .ddr_dout_ready(ddr_dout_ready)

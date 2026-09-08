@@ -33,7 +33,7 @@ VERILATOR ?= verilator
 VFLAGS = -DVERILATOR --cc --exe --build -Wno-fatal -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC
 RTL = ../rtl
 
-.PHONY: ddr-sweep gfx spr-gfx line line-all eeprom pf pf-mosaic pf-all mix mix-all pipe pipe-60 pipe-lat spr-lat spr-rec spr spr-all spr-line spr-line-all spr-ghost es5505 es5505-rw \
+.PHONY: ddrarb ddr-sweep gfx spr-gfx line line-all eeprom pf pf-mosaic pf-all mix mix-all pipe pipe-60 pipe-lat spr-lat spr-rec spr spr-all spr-line spr-line-all spr-ghost es5505 es5505-rw \
         ear-mix ear-mix-all ear-pipe-all ear-spr-line-all clean
 
 gfx: obj_dir/gfxtb
@@ -58,6 +58,16 @@ obj_dir/linetb: line_tb.cpp $(RTL)/rf_video_line.sv
 
 eeprom: obj_dir/eetb
 	./obj_dir/eetb
+
+# Does rotation ever lose a write on the shared DDRAM port? See ddrarb_tb.cpp
+# and the header of rf_ddr_arb.sv -- this is the bench for the one defect that
+# lives on the ROTATION side of that port, which every other bench here is
+# blind to because they all model the sprite side.
+ddrarb: obj_dir/ddrarbtb
+	./obj_dir/ddrarbtb
+
+obj_dir/ddrarbtb: ddrarb_tb.cpp $(RTL)/rf_ddr_arb.sv
+	$(VERILATOR) $(VFLAGS) --top-module rf_ddr_arb $(RTL)/rf_ddr_arb.sv ddrarb_tb.cpp -o ddrarbtb
 
 obj_dir/eetb: ee_tb.cpp $(RTL)/rf_eeprom_93c46.sv
 	$(VERILATOR) $(VFLAGS) --top-module rf_eeprom_93c46 $(RTL)/rf_eeprom_93c46.sv ee_tb.cpp -o eetb
