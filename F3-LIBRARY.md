@@ -23,55 +23,83 @@ boot through the same F3 code and hash to 10620931.
 | `extend` | 0 and 1 | **both implemented** (`cfg_extend`) |
 | rotation | ROT0, ROT90, ROT270 | MRA-level, nothing needed in the core |
 | sprite lag | 0, 1, 2 (2 sets want 0, 24 sets want 1, 9 sets want 2) | **NOT expressible** — the engine is structurally lag 2. Field reserved at index 2 `[4:3]` |
-| 12-bit palette | `ridingf`, and with extend=0 `arabianm`/`ringrage` | **not implemented**. Field reserved at index 2 `[5]` |
+| 12-bit palette | `spcinvdj`, `ridingf`, `arabianm`, `ringrage` | **implemented** 2026-09-08 (`cfg_pal12`). Per game, as MAME does it; MRA index 2 `[5]` also turns it on |
 | game id | 35 parents | 6 bits = 64 ids, so the field can name every one |
 
 ## Every parent set
 
-`fits` is against the current 18.5 MB universal map, region by region.
+`fits` is against the SDRAM map, region by region. **There are two map
+profiles now** (`cfg_map`, MRA index 2 bit `[4]`): profile 0 is the original
+layout, unchanged, and profile 1 is a 36 MB layout with a 13 MB sprites
+region. **Profile 1 fits ALL 100 F3 sets, parents and clones**, so nothing in
+the library is blocked on ROM space any more.
+
+**The sizes below were re-measured on 2026-09-08 from REAL ROM bytes.** The
+figures this file used to carry came from MAME's *declared* region sizes and
+overstated several sets badly -- the largest set in the library is Kirameki
+Star Road at **31 MB**, not the 36-40 MB the declared sizes imply. Two
+consequences worth knowing:
+
+- `sprites` is the region that overflows for THIRTEEN of the fourteen sets
+  that missed profile 0. The 4 MB slot was the bottleneck, not capacity.
+- **Land Maker now fits profile 0**, because ensoniq grew 4 MB -> 8 MB for
+  Puzzle Bobble 3/4 and its 6 MB of samples fit that. It is listed as not
+  fitting further down; that row is stale.
+
+The SDRAM itself was MEASURED at **>= 64 MB** (aliasing probe, 2026-09-08:
+1 MB of 0xFF at byte 32 MB left the program ROM intact, where the same write
+at byte 0 destroyed it), so both profiles have room to spare.
+
 `cfg` is the config the MRA would carry: index 1, then index 2 when the
 game id needs the high bits. Ids are assigned only to games that have
 actually been given one; the rest show `-`.
 
-| set | vis | ext | lag | rot | ROM | fits 18.5 MB | id | cfg | state |
-|---|---|---|---|---|---|---|---|---|---|
-| `arkretrn` | 3 | 1 | 1 | 0 | 5.75 MB | yes | - | `03` |  |
-| `twinqix` | 0 | 1 | 1 | 0 | 7.50 MB | yes | - | `00` |  |
-| `cleopatr` | 0 | 0 | 1 | 0 | 8.25 MB | yes | - | `04` |  |
-| `arabianm` | 0 | 0 | 2 | 0 | 8.75 MB | yes | - | `04` |  |
-| `gseeker` | 1 | 0 | 1 | 90 | 8.75 MB | yes | - | `05` |  |
-| `recalh` | 3 | 1 | 1 | 0 | 9.25 MB | yes | - | `03` |  |
-| `ridingf` | 1 | 1 | 1 | 0 | 9.25 MB | yes | - | `01` |  |
-| `pbobble2` | 3 | 0 | 1 | 0 | 10.50 MB | yes | 5 | `67` | **runs** |
-| `spcinv95` | 0 | 0 | 1 | 270 | 11.00 MB | yes | - | `04` |  |
-| `bublbob2` | 0 | 1 | 1 | 0 | 11.50 MB | yes | 2 | `80` | **runs** |
-| `gunlock` | 0 | 1 | 2 | 90 | 11.50 MB | yes | 6 | `A0` | **runs** |
-| `rayforce` (US) | 0 | 1 | 2 | 90 | 11.50 MB | yes | 0 | none | **runs** |
-| `rayforcej` | 0 | 1 | 2 | 90 | 11.50 MB | yes | 7 | `E0` | MRA written |
-| `ringrage` | 0 | 0 | 2 | 0 | 11.75 MB | yes | - | `04` |  |
-| `bubblem` | 0 | 1 | 1 | 0 | 13.50 MB | yes | 3 | `C0` | MRA written |
-| `qtheater` | 2 | 1 | 1 | 0 | 14.50 MB | yes | - | `02` |  |
-| `popnpop` | 3 | 1 | 1 | 0 | 15.50 MB | yes | - | `03` |  |
-| `gekiridn` | 3 | 0 | 1 | 270 | 17.50 MB | yes | - | `07` |  |
-| `dariusg` | 3 | 0 | 2 | 0 | 18.50 MB | yes | 4 | `27` | **runs** |
-| `dariusgx` | 3 | 0 | 2 | 0 | 18.50 MB | yes | - | `07` |  |
-| `elvactr` | 3 | 1 | 2 | 0 | 18.50 MB | yes | 1 | `43` | **runs** |
-| `pbobble3` | 3 | 0 | 1 | 0 | 13.50 MB | **no** (ensoniq) | - | `07` |  |
-| `pbobble4` | 3 | 0 | 1 | 0 | 13.50 MB | **no** (ensoniq) | - | `07` |  |
-| `cupfinal` | 0 | 0 | 1 | 0 | 14.25 MB | **no** (sprites, sprites_hi) | - | `04` |  |
-| `intcup94` | 0 | 0 | 1 | 0 | 14.25 MB | **no** (sprites, sprites_hi) | - | `04` |  |
-| `scfinals` | 0 | 0 | 1 | 0 | 14.75 MB | **no** (sprites, sprites_hi) | - | `04` |  |
-| `tcobra2` | 3 | 0 | 0 | 270 | 17.25 MB | **no** (sprites, tilemap) | - | `07` |  |
-| `trstar` | 3 | 1 | 0 | 0 | 17.25 MB | **no** (sprites, sprites_hi) | - | `03` |  |
-| `commandw` | 1 | 1 | 1 | 0 | 20.25 MB | **no** (sprites, sprites_hi) | - | `01` |  |
-| `quizhuhu` | 3 | 1 | 1 | 0 | 20.25 MB | **no** (sprites, sprites_hi, ensoniq) | - | `03` |  |
-| `landmakr` | 3 | 1 | 1 | 0 | 20.50 MB | **no** (ensoniq) | - | `03` |  |
-| `lightbr` | 0 | 1 | 2 | 0 | 21.25 MB | **no** (sprites, sprites_hi) | - | `00` |  |
-| `puchicar` | 3 | 1 | 1 | 0 | 23.50 MB | **no** (sprites, sprites_hi, ensoniq) | - | `03` |  |
-| `pwrgoal` | 0 | 0 | 1 | 0 | 26.50 MB | **no** (sprites, sprites_hi) | - | `04` |  |
-| `dankuga` | 0 | 0 | 2 | 0 | 36.00 MB | **no** (sprites, sprites_hi, tilemap, tilemap_hi, ensoniq) | - | `04` |  |
-| `kaiserkn` | 0 | 0 | 2 | 0 | 36.00 MB | **no** (sprites, sprites_hi, tilemap, tilemap_hi, ensoniq) | - | `04` |  |
-| `kirameki` | 0 | 0 | 1 | 0 | 40.00 MB | **no** (audiocpu, sprites, sprites_hi, tilemap, tilemap_hi, ensoniq) | - | `04` |  |
+| set | real ROM | profile 0 (18.5 MB) | id | state |
+|---|---:|---|---|---|
+| `spcinvdj` *12-bit* | 4.00 MB | yes | - |  |
+| `arkretrn` | 5.00 MB | yes | 8 | **runs** |
+| `cleopatr` | 7.25 MB | yes | 13 | **runs** |
+| `arabianm` *12-bit* | 7.25 MB | yes | - |  |
+| `twinqix` | 7.50 MB | yes | 14 | **runs** |
+| `gseeker` | 8.75 MB | yes | 11 | **runs** |
+| `spcinv95` | 9.00 MB | yes | 12 | **runs** |
+| `recalh` | 9.25 MB | yes | 15 | **runs** |
+| `ridingf` *12-bit* | 9.25 MB | yes | - |  |
+| `ringrage` *12-bit* | 9.25 MB | yes | - |  |
+| `pbobble2` | 9.50 MB | yes | 5 | **runs** |
+| `bublbob2` | 9.50 MB | yes | 2 | **runs** |
+| `gunlock` | 9.50 MB | yes | 6 | **runs** |
+| `rayforce` | 9.50 MB | yes | 0 | **runs** |
+| `rayforcej` | 9.50 MB | yes | 7 | MRA written |
+| `cupfinal` | 10.75 MB | **no** (sprites) | - |  |
+| `intcup94` | 10.75 MB | **no** (sprites) | - |  |
+| `scfinals` | 11.25 MB | **no** (sprites) | - |  |
+| `bubblem` | 12.50 MB | yes | 3 | **runs** |
+| `pbobble3` | 12.50 MB | yes | 9 | staged, needs build |
+| `pbobble4` | 12.50 MB | yes | 10 | staged, needs build |
+| `popnpop` | 12.50 MB | yes | 17 | **runs** |
+| `trstar` | 13.25 MB | **no** (sprites) | - |  |
+| `gekiridn` | 13.50 MB | yes | 18 | **runs** |
+| `qtheater` | 14.50 MB | yes | 16 | **runs** |
+| `dariusg` | 14.50 MB | yes | 4 | **runs** |
+| `dariusgx` | 14.50 MB | yes | 19 | **runs** |
+| `elvactr` | 14.50 MB | yes | 1 | **runs** |
+| `commandw` | 15.25 MB | **no** (sprites) | - |  |
+| `lightbr` | 16.25 MB | **no** (sprites) | - |  |
+| `quizhuhu` | 16.25 MB | **no** (sprites) | - |  |
+| `landmakr` | 16.50 MB | yes | - |  |
+| `tcobra2` | 17.25 MB | **no** (sprites, tilemap) | - |  |
+| `puchicar` | 18.50 MB | **no** (sprites) | - |  |
+| `pwrgoal` | 19.50 MB | **no** (sprites) | - |  |
+| `kaiserkn` | 26.50 MB | **no** (sprites, tilemap) | - |  |
+| `dankuga` | 26.50 MB | **no** (sprites, tilemap) | - |  |
+| `kirameki` | 31.00 MB | **no** (audiocpu, sprites, tilemap) | - |  |
 
-**19 of 35 fit the current map**; the rest are blocked on room, not on any
+`*12-bit*` marks the four sets needing the 12-bit palette, implemented
+2026-09-08. **Every set above fits profile 1**, so the `profile 0` column is
+now only about which games need no MRA change rather than which are possible.
+
+**17 of these run on hardware**, 20 have an id.
+Sizes are REAL ROM bytes measured 2026-09-08, not MAME's declared region
+sizes; see the note above for why that matters.
 per-game parameter. See the map-size tiers in README.
