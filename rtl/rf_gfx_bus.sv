@@ -70,14 +70,20 @@ module rf_gfx_bus
     output logic [26:1] ch_hi_addr,
     input  logic [63:0] ch_hi_dout,
     output logic        ch_hi_req,
-    input  logic        ch_hi_ready
+    input  logic        ch_hi_ready,
+    // The gfx region bases are PORTS, not constants: the core carries two
+    // SDRAM map profiles now (see cfg_map in Rayforce.sv). Profile 0 is the
+    // 18.5 MB map every game shipped before 2026-09-08 uses, and its MRAs
+    // are untouched; profile 1 is a 36 MB map whose sprites region is 13 MB
+    // rather than 4, which is what the fourteen sets that did not fit need
+    // -- sprites is the region that overflows for thirteen of them.
+    input  logic [26:1] base_lo,
+    input  logic [26:1] base_hi
 );
 
     // Word addresses of the two regions in the flat SDRAM map (the MRA
     // stream order IS the map): tilemap at byte 0x480000, tilemap_hi at
     // 0x680000.
-    localparam logic [26:1] BASE_LO = 26'h440000;   // byte 0x880000
-    localparam logic [26:1] BASE_HI = 26'h640000;   // byte 0xC80000
 
     // ---- ram-domain completion capture ----------------------------------
     /* verilator lint_off PROCASSINIT */
@@ -116,8 +122,8 @@ module rf_gfx_bus
             hi_got    <= 1'b0;
         end else if (!busy) begin
             if (req) begin
-                ch_lo_addr <= BASE_LO + {5'd0, code, row, 2'b00};
-                ch_hi_addr <= BASE_HI + {6'd0, code, row[3:1], 2'b00};
+                ch_lo_addr <= base_lo + {5'd0, code, row, 2'b00};
+                ch_hi_addr <= base_hi + {6'd0, code, row[3:1], 2'b00};
                 r_row      <= row;
                 ch_lo_req  <= 1'b1;
                 ch_hi_req  <= 1'b1;

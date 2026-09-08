@@ -30,7 +30,20 @@ def part_bytes(el):
         data = bytes(int(b, 16) for b in (el.text or "").split())
         return data * int(el.get("repeat", "1"))
     c = int(el.get("crc"), 16)
-    return z.read(by_crc[c])
+    data = z.read(by_crc[c])
+    # offset/length take a WINDOW of the ROM, which is how MiSTer's own mra
+    # tool reads them and how a set with a factory patch has to be expressed:
+    # Grid Seeker's d40_03/04 are superseded in their bottom megabyte by the
+    # patch ROMs d40_15/16, so only their upper halves are streamed. Without
+    # this the assembled stream is a megabyte too long and the size check --
+    # the thing that proves the regions line up with the RTL's base
+    # addresses -- silently reports the wrong answer.
+    off = int(el.get("offset", "0"), 0)
+    ln = el.get("length")
+    if off or ln is not None:
+        end = off + int(ln, 0) if ln is not None else len(data)
+        data = data[off:end]
+    return data
 
 
 stream = bytearray()

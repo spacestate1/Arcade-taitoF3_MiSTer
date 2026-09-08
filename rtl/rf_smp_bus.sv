@@ -8,6 +8,11 @@
 //  0x780000, and the ES5505's word address i is byte i of that (ROADMAP
 //  Phase 3), so line {bank, addr[19:3]} is SDRAM bytes 0x780000 +
 //  {bank, addr[19:3], 3'b000}, word address 0x3C0000 + {bank, addr[19:3], 2'b00}.
+//  THREE bank bits since Puzzle Bobble 3/4: their ensoniq region is 16 MB in
+//  MAME, so the otisbank mask is 7 rather than Ray Force's 3, and the sample
+//  space is 8 MB rather than 4. Ensoniq is the LAST region in the map, so
+//  growing it moves nothing else; a game with a 2-bit mask never generates an
+//  address above 4 MB and its half of the map is byte-for-byte unchanged.
 //============================================================================
 
 module rf_smp_bus
@@ -15,7 +20,7 @@ module rf_smp_bus
     input  logic        clk_cpu,
     input  logic        reset,
 
-    input  logic [21:3] addr,          // {bank[1:0], sample address[19:3]}
+    input  logic [22:3] addr,          // {bank[2:0], sample address[19:3]}
     input  logic        req,           // one-cycle pulse
     output logic [63:0] line,          // byte k in [8k +: 8]
     output logic        valid,         // one-cycle pulse
@@ -25,9 +30,11 @@ module rf_smp_bus
     output logic [26:1] ch_addr,
     input  logic [63:0] ch_dout,
     output logic        ch_req,
-    input  logic        ch_ready
+    input  logic        ch_ready,
+    // ensoniq region base -- a PORT because the core has two SDRAM map
+    // profiles now; see cfg_map in Rayforce.sv
+    input  logic [26:1] base
 );
-    localparam logic [26:1] BASE = 26'h740000;      // byte 0xE80000
 
     /* verilator lint_off PROCASSINIT */
     logic done_t = 1'b0;
@@ -50,7 +57,7 @@ module rf_smp_bus
             ch_req <= 1'b0;
         end else if (!busy) begin
             if (req) begin
-                ch_addr <= BASE + {5'd0, addr, 2'b00};
+                ch_addr <= base + {4'd0, addr, 2'b00};
                 ch_req  <= 1'b1;
                 busy    <= 1'b1;
             end

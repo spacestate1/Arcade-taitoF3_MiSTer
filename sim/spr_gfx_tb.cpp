@@ -84,6 +84,9 @@ int main(int argc, char** argv) {
     }
 
     Vrf_spr_gfx_bus* t = new Vrf_spr_gfx_bus;
+    // SDRAM map profile 0 -- see gfx_tb.cpp
+    t->base_lo = 0x140000;   // sprites    byte 0x280000
+    t->base_hi = 0x340000;   // sprites_hi byte 0x680000
     Chan lo, hi;
 
     struct Case { int code, row; };

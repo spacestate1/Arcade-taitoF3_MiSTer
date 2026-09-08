@@ -210,7 +210,10 @@ module rf_video_spr
                                         // answer for the line just drawn
     input  logic        fb_busy,        // writer still emptying the other
     input  logic  [8:0] fb_addr,        // writer's read port into the buffer
-    output logic [15:0] fb_q
+    output logic [15:0] fb_q,
+    // sprite gfx region bases (SDRAM map profile, see cfg_map)
+    input  logic [26:1] gfx_base_lo,
+    input  logic [26:1] gfx_base_hi
 );
     // Visible span. X is the same for every F3 game; the Y pair is the
     // game's visarea and MUST follow vis_mode -- it is the per-row clip that
@@ -644,7 +647,8 @@ module rf_video_spr
         .pix(gfx_pix[0]), .valid(gfx_valid[0]), .busy(gfx_busy[0]), .fetch_bad(gfx_bad[0]),
         .clk_ram(clk_ram),
         .ch_lo_addr(ch_a_lo_addr), .ch_lo_dout(ch_a_lo_dout), .ch_lo_req(ch_a_lo_req), .ch_lo_ready(ch_a_lo_ready),
-        .ch_hi_addr(ch_a_hi_addr), .ch_hi_dout(ch_a_hi_dout), .ch_hi_req(ch_a_hi_req), .ch_hi_ready(ch_a_hi_ready)
+        .ch_hi_addr(ch_a_hi_addr), .ch_hi_dout(ch_a_hi_dout), .ch_hi_req(ch_a_hi_req), .ch_hi_ready(ch_a_hi_ready),
+        .base_lo(gfx_base_lo), .base_hi(gfx_base_hi)
     );
 
     rf_spr_gfx_bus gfx_b (
@@ -653,7 +657,8 @@ module rf_video_spr
         .pix(gfx_pix[1]), .valid(gfx_valid[1]), .busy(gfx_busy[1]), .fetch_bad(gfx_bad[1]),
         .clk_ram(clk_ram),
         .ch_lo_addr(ch_b_lo_addr), .ch_lo_dout(ch_b_lo_dout), .ch_lo_req(ch_b_lo_req), .ch_lo_ready(ch_b_lo_ready),
-        .ch_hi_addr(ch_b_hi_addr), .ch_hi_dout(ch_b_hi_dout), .ch_hi_req(ch_b_hi_req), .ch_hi_ready(ch_b_hi_ready)
+        .ch_hi_addr(ch_b_hi_addr), .ch_hi_dout(ch_b_hi_dout), .ch_hi_req(ch_b_hi_req), .ch_hi_ready(ch_b_hi_ready),
+        .base_lo(gfx_base_lo), .base_hi(gfx_base_hi)
     );
 
     // ---- line buffer ring: NB banks x 320 x {tag[6:0], val[12:0]} -------

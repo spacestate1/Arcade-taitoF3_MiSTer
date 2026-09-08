@@ -751,8 +751,14 @@ logic [55:0] aud_ring_data;
 //     0x0680000    2 MB   sprites_hi
 //     0x0880000    4 MB   tilemap      (LOAD32_WORD pair)
 //     0x0C80000    2 MB   tilemap_hi
-//     0x0E80000    4 MB   ensoniq      (2 x 2 MB, plain)
-//     0x1280000           = 18.5 MB total
+//     0x0E80000    8 MB   ensoniq      (up to 4 x 2 MB, plain)
+//     0x1680000           = 22.5 MB total
+//
+//  Ensoniq grew 4 MB -> 8 MB for Puzzle Bobble 3/4, whose sample region is
+//  16 MB in MAME against Ray Force's 8. It is the LAST region, so nothing
+//  else moved and every MRA written before it still streams 18.5 MB and
+//  still means exactly what it meant -- those games simply never address
+//  the upper half (see cfg_bankmask).
 //
 //  Ray Force fills half of it and pads the rest; Elevator Action Returns
 //  fills it. Games larger than this (Kaiser Knuckle, Kirameki Star Road at
@@ -962,6 +968,106 @@ always_comb begin
     endcase
 end
 
+// ---- otisbank mask, per game ----------------------------------------
+// The Taito EN board banks the sample ROM with its own register, not the
+// ES5505's, and MAME masks what the game writes there with
+//
+//     m_bankmask = (ensoniq region bytes / 0x200000) - 1
+//
+// which is a property of the ROM set, so it belongs here beside exp_*. It
+// is 3 for every game this core ran before Puzzle Bobble 3 -- an 8 MB
+// region, four 1 MB banks -- and 7 for Puzzle Bobble 3 and 4, whose region
+// is 16 MB. Arkanoid Returns is the other direction: a 4 MB region masks to
+// 1, and without that a voice asking for bank 2 reads padding instead of
+// wrapping to bank 0 the way the board does.
+//
+// Masking here rather than widening unconditionally is what keeps every
+// existing game bit-identical: a 3-masked game cannot generate an address
+// above 4 MB, so its samples come from exactly the bytes they always did.
+logic [2:0] cfg_bankmask;
+always_comb begin
+    case (cfg_game)
+        6'd8:    cfg_bankmask = 3'd1;   // Arkanoid Returns   (4 MB region)
+        6'd9:    cfg_bankmask = 3'd7;   // Puzzle Bobble 3   (16 MB region)
+        6'd10:   cfg_bankmask = 3'd7;   // Puzzle Bobble 4   (16 MB region)
+        6'd13:   cfg_bankmask = 3'd1;   // Cleopatra Fortune  (4 MB region)
+        6'd14:   cfg_bankmask = 3'd1;   // Twin Qix           (4 MB region)
+        default: cfg_bankmask = 3'd3;   // 8 MB region -- every earlier game
+    endcase
+end
+
+// ---- 12-BIT PALETTE, per game ---------------------------------------
+// Four F3 sets store a palette entry as RRRRGGGGBBBB0000 in the low word
+// rather than as 32-bit 0RGB. MAME switches on the GAME to decide
+// (taito_f3_v.cpp palette_24bit_w), and its own TODO there says the real
+// chip may select it per line through 0x6400 -- unimplemented there too, so
+// a per-game flag is exactly as correct as the reference. The MRA carries
+// it at index 2 bit [5] as well, for a set that turns up needing it before
+// it has an id here; either source turns it on.
+//   spcinvdj  Space Invaders DX   D93
+//   ridingf   Riding Fight
+//   arabianm  Arabian Magic
+//   ringrage  Ring Rage
+// None of these has a reference dump in this tree, so the bench cannot
+// judge them; the 24-bit path is unchanged and IS covered, which is what
+// the mix and pipe benches are asked to prove after this change.
+logic cfg_pal12_id;
+always_comb begin
+    case (cfg_game)
+        6'd20, 6'd21, 6'd22, 6'd23: cfg_pal12_id = 1'b1;  // reserved for the four
+        default:                    cfg_pal12_id = 1'b0;
+    endcase
+end
+wire cfg_pal12 = cfg_pal12_id | game_cfg[13];   // index 2 bit [5]
+
+// ---- SDRAM MAP PROFILE ----------------------------------------------
+// Fourteen F3 sets do not fit the 18.5 MB map, and measuring their REAL
+// ROM bytes (not MAME's declared region sizes, which overstate it) shows
+// what actually blocks them:
+//
+//   sprites overflows for THIRTEEN of the fourteen; the 4 MB slot is the
+//   bottleneck, not total capacity. Kaiser Knuckle and Dan-Ku-Ga want
+//   13 MB of it, Kirameki Star Road 12 MB. The largest set in the whole
+//   library is Kirameki at 31 MB of real ROM, not the 36-40 MB the
+//   declared sizes suggest.
+//
+// The SDRAM was MEASURED at >= 64 MB on 2026-09-08 by an aliasing probe:
+// 1 MB of 0xFF written at byte 32 MB (exactly where ch_addr[25], the tenth
+// column bit, turns on) left the program ROM intact, where the same write
+// at byte 0 destroyed it. So there is room; only the layout was wrong.
+//
+// TWO PROFILES rather than one big map, because one big map would re-cut
+// all 21 shipped MRAs and every exp_* with them. Profile 0 IS the existing
+// map, unchanged to the byte, so every MRA written before today still
+// means what it meant. Profile 1 is the 36 MB layout the big sets need.
+//
+//   region       profile 0 (18.5 MB)      profile 1 (36 MB)
+//   maincpu      0x0000000   2 MB         0x0000000   2 MB
+//   audiocpu     0x0200000 512 KB         0x0200000   3 MB
+//   sprites      0x0280000   4 MB         0x0500000  13 MB
+//   sprites_hi   0x0680000   2 MB         0x1200000   2 MB
+//   tilemap      0x0880000   4 MB         0x1400000   6 MB
+//   tilemap_hi   0x0C80000   2 MB         0x1A00000   2 MB
+//   ensoniq      0x0E80000   8 MB         0x1C00000   8 MB
+//                          = 22.5 MB                = 36 MB
+//
+// KNOWN LIMIT: profile 1 gives audiocpu 3 MB for Kirameki Star Road, but
+// rf_sound_main maps the sound 68000's C00000-C7FFFF linearly onto a 1 MB
+// window and does not implement taito_en's bank register, so only the
+// first megabyte is reachable. Every other set here has <= 512 KB of sound
+// ROM and is unaffected; Kirameki needs that banking before it will run.
+//
+// Profile 1 is selected by MRA index 2 bit [4] -- a spare bit -- so a set
+// can ask for it without needing a game id here first.
+wire cfg_map = game_cfg[12];
+
+// Bases are WORD addresses ([26:1]), i.e. half the byte address above.
+wire [26:1] map_tile_lo = cfg_map ? 26'hA00000 : 26'h440000;  // tilemap
+wire [26:1] map_tile_hi = cfg_map ? 26'hD00000 : 26'h640000;  // tilemap_hi
+wire [26:1] map_sgfx_lo = cfg_map ? 26'h280000 : 26'h140000;  // sprites
+wire [26:1] map_sgfx_hi = cfg_map ? 26'h900000 : 26'h340000;  // sprites_hi
+wire [26:1] map_smp     = cfg_map ? 26'hE00000 : 26'h740000;  // ensoniq
+
 // ---------------------------  NVRAM  ---------------------------------
 //
 // The 93C46 settings EEPROM is the game's only persistent store: the
@@ -1090,7 +1196,7 @@ wire  [3:0] es_reg;
 wire [15:0] es_data;
 wire  [1:0] es_be;
 wire  [4:0] bk_voice;
-wire  [1:0] bk_data;
+wire  [2:0] bk_data;
 wire  [7:0] es_irqv;
 wire        es_rd_req, es_rd_valid;
 wire  [3:0] es_rd_reg;
@@ -1115,7 +1221,7 @@ rf_sound_main sound
 
 // ---- the ES5505 (Phase 3 stage 2) and its sample fetch on ch6 -----------
 wire        sm_req, sm_valid, sm_busy;     // sm_line/sm_valid: from the BIST mux below
-wire [21:3] sm_addr;
+wire [22:3] sm_addr;
 wire [63:0] sm_line;
 wire        es_out_valid;
 wire [7:0][19:0] es_out;
@@ -1180,7 +1286,7 @@ rf_es5505 es5505
 (
     .clk(clk_sys), .reset(cpu_reset | snd_reset),
     .es_we(es_we), .es_reg(es_reg), .es_data(es_data), .es_be(es_be),
-    .bk_we(bk_we), .bk_voice(bk_voice), .bk_data(bk_data),
+    .bk_we(bk_we), .bk_voice(bk_voice), .bk_data(bk_data), .bank_mask(cfg_bankmask),
     .sm_req(sm_req), .sm_addr(sm_addr), .sm_line(sm_line), .sm_valid(sm_valid), .sm_busy(sm_busy),
     .tick(es_tick), .out_valid(es_out_valid), .out_ch(es_out), .out_active(es_active),
     .irqv_out(es_irqv), .irqv_ack(es_irqv_ack),
@@ -1241,7 +1347,8 @@ rf_smp_bus smp_bus
     .req(smp_bist_running ? smp_bist_req : sm_req),
     .line(smp_line_w), .valid(smp_valid_w), .busy(sm_busy),
     .clk_ram(clk_ram),
-    .ch_addr(ch6_addr), .ch_dout(ch6_dout), .ch_req(ch6_req), .ch_ready(ch6_ready)
+    .ch_addr(ch6_addr), .ch_dout(ch6_dout), .ch_req(ch6_req), .ch_ready(ch6_ready),
+    .base(map_smp)
 );
 
 // Mix: the pump sends pair 0 straight out and pairs 1-3 through the ESP,
@@ -1464,6 +1571,9 @@ rf_video_pipe vpipe
     .dbg_seq_fold01(vid_seq_fold01), .dbg_seq_fold23(vid_seq_fold23),
     .dbg_seq_used01(vid_seq_used01), .dbg_seq_used23(vid_seq_used23),
     .dbg_sprpix(vid_dbg_sprpix), .dbg_mixpix(vid_dbg_mixpix), .row_cap(spr_row_cap),
+    .pal12(cfg_pal12),
+    .tile_base_lo(map_tile_lo), .tile_base_hi(map_tile_hi),
+    .sgfx_base_lo(map_sgfx_lo), .sgfx_base_hi(map_sgfx_hi),
     .ddr_burstcnt(fb_burstcnt), .ddr_addr(fb_addr), .ddr_din(fb_din),
     .ddr_be(fb_be), .ddr_we(fb_we), .ddr_rd(fb_rd),
     .ddr_busy(fb_busy), .ddr_dout(fb_dout), .ddr_dout_ready(fb_dout_ready)

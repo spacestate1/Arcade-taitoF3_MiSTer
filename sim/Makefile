@@ -130,8 +130,8 @@ spr-gfx: obj_dir/sprgfxtb
 	./obj_dir/sprgfxtb ../dump spr_fetched.txt
 	python3 check_spr_gfx.py ../dump spr_fetched.txt
 
-obj_dir/sprgfxtb: spr_gfx_tb.cpp $(RTL)/rf_spr_gfx_bus.sv
-	$(VERILATOR) $(VFLAGS) --top-module rf_spr_gfx_bus $(RTL)/rf_spr_gfx_bus.sv spr_gfx_tb.cpp -o sprgfxtb
+obj_dir/sprgfxtb: spr_gfx_tb.cpp $(RTL)/rf_spr_gfx_bus.sv $(RTL)/rf_bram.sv
+	$(VERILATOR) $(VFLAGS) --top-module rf_spr_gfx_bus $(RTL)/rf_spr_gfx_bus.sv $(RTL)/rf_bram.sv spr_gfx_tb.cpp -o sprgfxtb
 
 # ---- per-line sprite builder (stage c) ----
 SPR_RTL = $(RTL)/rf_video_spr_list.sv $(RTL)/rf_spr_gfx_bus.sv $(RTL)/rf_bram.sv $(RTL)/rf_video_spr.sv

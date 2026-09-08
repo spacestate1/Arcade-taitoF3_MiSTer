@@ -2,7 +2,8 @@
 // The wiring Rayforce.sv will use, minus the raster-driven sequencing: the
 // bench decodes and builds a line, then starts the mixer on it.
 module mix_top (
-    input  logic        clk,
+    input  logic        pal12,
+input  logic        clk,
     input  logic        reset,
 
     input  logic        frame_start,
@@ -107,7 +108,9 @@ module mix_top (
         .pix(gfx_pix), .valid(gfx_valid), .busy(gfx_busy),
         .clk_ram(clk_ram),
         .ch_lo_addr(ch_lo_addr), .ch_lo_dout(ch_lo_dout), .ch_lo_req(ch_lo_req), .ch_lo_ready(ch_lo_ready),
-        .ch_hi_addr(ch_hi_addr), .ch_hi_dout(ch_hi_dout), .ch_hi_req(ch_hi_req), .ch_hi_ready(ch_hi_ready)
+        .ch_hi_addr(ch_hi_addr), .ch_hi_dout(ch_hi_dout), .ch_hi_req(ch_hi_req), .ch_hi_ready(ch_hi_ready),
+        // SDRAM map profile 0, the 18.5 MB map these references were made with
+        .base_lo(26'h440000), .base_hi(26'h640000)
     );
 
     rf_video_mix mix (
@@ -121,7 +124,7 @@ module mix_top (
         .x_req(x_req), .x_req_x(x_req_x), .smp_x(smp_x),
         .sp_color(sp_color), .sp_used(sp_used),
         .pv_color(pv_color), .pv_opaque(pv_opaque), .pv_used(pv_used),
-        .pal_addr(pal_addr), .pal_q(pal_q),
+        .pal_addr(pal_addr), .pal_q(pal_q), .pal12(pal12),
         .out_valid(out_valid), .out_x(out_x), .out_rgb(out_rgb)
     );
 endmodule

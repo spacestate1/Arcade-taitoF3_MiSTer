@@ -65,6 +65,8 @@ int main(int argc, char** argv) {
         cyc++;
     };
 
+    t->bank_mask = 3;   // Ray Force: 8 MB ensoniq region -> MAME m_bankmask 3
+
     t->reset = 1; t->tick = 0; t->es_we = 0; t->bk_we = 0; t->sm_valid = 0; t->sm_busy = 0; t->rd_req = 0; t->rd_reg = 0;
     for (int i = 0; i < 8; i++) step();
     t->reset = 0;
@@ -95,7 +97,10 @@ int main(int argc, char** argv) {
                 t->rd_req = 0; step();
                 continue;
             }
-            if (w.isbk) { t->bk_we = 1; t->bk_voice = w.reg; t->bk_data = w.data & 3; }
+            if (w.isbk) { t->bk_we = 1; t->bk_voice = w.reg; t->bk_data = w.data & 7; }
+            // the RTL masks with bank_mask now (MAME's m_bankmask), so hand it
+            // three raw bits and let it do the masking -- that is the path
+            // Puzzle Bobble 3/4 need, tested here against Ray Force's data
             else { t->es_we = 1; t->es_reg = w.reg; t->es_data = w.data; t->es_be = ((w.mask & 0xff00) ? 2 : 0) | ((w.mask & 0xff) ? 1 : 0); }
             step();
         }

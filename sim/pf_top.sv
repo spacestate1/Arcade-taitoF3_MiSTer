@@ -102,6 +102,8 @@ module pf_top (
         .pix(gfx_pix), .valid(gfx_valid), .busy(gfx_busy),
         .clk_ram(clk_ram),
         .ch_lo_addr(ch_lo_addr), .ch_lo_dout(ch_lo_dout), .ch_lo_req(ch_lo_req), .ch_lo_ready(ch_lo_ready),
-        .ch_hi_addr(ch_hi_addr), .ch_hi_dout(ch_hi_dout), .ch_hi_req(ch_hi_req), .ch_hi_ready(ch_hi_ready)
+        .ch_hi_addr(ch_hi_addr), .ch_hi_dout(ch_hi_dout), .ch_hi_req(ch_hi_req), .ch_hi_ready(ch_hi_ready),
+        // SDRAM map profile 0, the 18.5 MB map these references were made with
+        .base_lo(26'h440000), .base_hi(26'h640000)
     );
 endmodule

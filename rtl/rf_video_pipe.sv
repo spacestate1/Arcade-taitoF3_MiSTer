@@ -184,7 +184,16 @@ module rf_video_pipe
     // DIAGNOSTIC: the mixer's own inputs on a wrong pixel (rf_video_mix)
     output logic [31:0] dbg_mixpix,
     // 0 = no cap, 1 = 256 rows a line, 2 = 128
-    input  logic  [1:0] row_cap
+    input  logic  [1:0] row_cap,
+    // 12-bit palette entries, per game -- see rf_video_mix.sv
+    input  logic        pal12,
+    // SDRAM map profile bases (see cfg_map in Rayforce.sv). Two profiles:
+    // the 18.5 MB map every earlier game uses, and a 36 MB map whose
+    // sprites region is 13 MB, which is what the sets that did not fit need.
+    input  logic [26:1] tile_base_lo,
+    input  logic [26:1] tile_base_hi,
+    input  logic [26:1] sgfx_base_lo,
+    input  logic [26:1] sgfx_base_hi
 );
 
     localparam int H_START = 46;
@@ -325,7 +334,8 @@ module rf_video_pipe
         .pix(gfx_pix), .valid(gfx_valid), .busy(gfx_busy),
         .clk_ram(clk_ram),
         .ch_lo_addr(ch1_addr), .ch_lo_dout(ch1_dout), .ch_lo_req(ch1_req), .ch_lo_ready(ch1_ready),
-        .ch_hi_addr(ch2_addr), .ch_hi_dout(ch2_dout), .ch_hi_req(ch2_req), .ch_hi_ready(ch2_ready)
+        .ch_hi_addr(ch2_addr), .ch_hi_dout(ch2_dout), .ch_hi_req(ch2_req), .ch_hi_ready(ch2_ready),
+        .base_lo(tile_base_lo), .base_hi(tile_base_hi)
     );
 
     // ---- pivot / text layer ------------------------------------------------
@@ -408,7 +418,8 @@ module rf_video_pipe
         .rd_line(mix_y), .rd_used(sp_used),
         .o_par(spr_par),
         .fb_req(spr_fb_req), .fb_line(spr_fb_line), .fb_busy(spr_fb_busy), .fb_used(),
-        .fb_addr(spr_fb_addr), .fb_q(spr_fb_q)
+        .fb_addr(spr_fb_addr), .fb_q(spr_fb_q),
+        .gfx_base_lo(sgfx_base_lo), .gfx_base_hi(sgfx_base_hi)
     );
 
     // The sprite framebuffer: the draw's finished lines go out to DDR3 and
@@ -448,7 +459,7 @@ module rf_video_pipe
         .x_req(x_req), .x_req_x(x_req_x), .smp_x(smp_x),
         .sp_color(sp_color), .sp_used(sp_used),
         .pv_color(pv_color), .pv_opaque(pv_opaque), .pv_used(pv_used),
-        .pal_addr(pal_addr), .pal_q(pal_q),
+        .pal_addr(pal_addr), .pal_q(pal_q), .pal12(pal12),
         .out_valid(out_valid), .out_x(out_x), .out_rgb(out_rgb),
         .line_y(mix_y), .dbg_pix(dbg_mixpix)
     );

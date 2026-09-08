@@ -36,7 +36,12 @@
 //  2048 with two zero LSBs -- identical result), and the integer address
 //  is accum[28:9].
 //
-//  Sample memory: word address = {bank[1:0], integer address[19:0]}; the
+//  Sample memory: word address = {bank[2:0], integer address[19:0]}. THREE
+//  bank bits, not two: the Taito EN board's otisbank register is masked by
+//  MAME with (ensoniq_region_bytes / 0x200000) - 1, which is 3 for Ray
+//  Force's 8 MB region but 7 for Puzzle Bobble 3/4's 16 MB one. The mask is
+//  per-game and comes in on bank_mask, so a 2-bit game cannot reach the
+//  extra space and behaves exactly as before. The
 //  word is the ROM byte in the high half, 0 in the low (see ROADMAP Phase
 //  3), i.e. SDRAM byte 0x780000 + address. A line is 8 consecutive bytes =
 //  8 samples, one SDRAM burst.
@@ -54,11 +59,13 @@ module rf_es5505
     input  logic  [1:0] es_be,          // {upper byte, lower byte}
     input  logic        bk_we,
     input  logic  [4:0] bk_voice,
-    input  logic  [1:0] bk_data,
+    input  logic  [2:0] bk_data,
+    // per-game otisbank mask, MAME's m_bankmask (3 = 8 MB region, 7 = 16 MB)
+    input  logic  [2:0] bank_mask,
 
     // sample line fetch: 8 bytes at {bank, addr[19:3]} -> line[63:0]
     output logic        sm_req,         // one-cycle pulse
-    output logic [21:3] sm_addr,
+    output logic [22:3] sm_addr,
     input  logic [63:0] sm_line,        // byte k of the line in [8k +: 8]
     input  logic        sm_valid,       // one-cycle pulse
     input  logic        sm_busy,
@@ -93,10 +100,10 @@ module rf_es5505
                             C_DIR   = 16'h0040, C_IRQ   = 16'h0080;
 
     // ---- voice file: 32 records ----------------------------------------
-    // {bank[1:0], control[15:0], fc[15:0], start[28:0], end[28:0], accum[28:0],
+    // {bank[2:0], control[15:0], fc[15:0], start[28:0], end[28:0], accum[28:0],
     //  k2[15:0], k1[15:0], lvol[7:0], rvol[7:0],
-    //  o1n1, o2n1, o2n2, o3n1, o3n2, o4n1 : 6 x [23:0]}  = 313 bits
-    localparam int VW = 313;
+    //  o1n1, o2n1, o2n2, o3n1, o3n2, o4n1 : 6 x [23:0]}  = 314 bits
+    localparam int VW = 314;
     (* ramstyle = "MLAB, no_rw_check" *) logic [VW-1:0] vf [0:31] /*verilator public_flat_rd*/;
     logic  [4:0]   vf_wa, vf_ra;
     logic [VW-1:0] vf_wd;
@@ -104,14 +111,14 @@ module rf_es5505
     wire  [VW-1:0] vf_rd = vf[vf_ra];
 
     // ---- per-voice sample line cache: 2 slots per voice -------------------
-    // {valid, tag[21:3], line[63:0]} = 84 bits
-    (* ramstyle = "MLAB, no_rw_check" *) logic [83:0] lcx [0:31];
-    (* ramstyle = "MLAB, no_rw_check" *) logic [83:0] lcy [0:31];
+    // {valid, tag[22:3], line[63:0]} = 85 bits
+    (* ramstyle = "MLAB, no_rw_check" *) logic [84:0] lcx [0:31];
+    (* ramstyle = "MLAB, no_rw_check" *) logic [84:0] lcy [0:31];
     logic  [4:0] lc_wa;
-    logic [83:0] lc_wd;
+    logic [84:0] lc_wd;
     logic        lcx_we, lcy_we;
-    wire  [83:0] lcx_rd = lcx[vf_ra];
-    wire  [83:0] lcy_rd = lcy[vf_ra];
+    wire  [84:0] lcx_rd = lcx[vf_ra];
+    wire  [84:0] lcy_rd = lcy[vf_ra];
 
     // ---- chip state --------------------------------------------------------
     logic  [6:0] page /*verilator public_flat_rd*/;
@@ -134,7 +141,7 @@ module rf_es5505
             if (wq_full) dbg_wqdrop <= dbg_wqdrop + 16'd1;
             else begin
                 wq[wq_wp] <= es_we ? {1'b0, 1'b0, es_reg, es_data, es_be}
-                                   : {1'b1, bk_voice, 14'd0, bk_data, 2'b11};
+                                   : {1'b1, bk_voice, 13'd0, bk_data, 2'b11};
                 wq_wp <= wq_wp + 8'd1;
             end
         end
@@ -181,7 +188,7 @@ module rf_es5505
 
     // the voice under work, unpacked from `r`
     logic [VW-1:0] r;
-    logic  [1:0] bank;   logic [15:0] ctrl, fc, k2, k1;
+    logic  [2:0] bank;   logic [15:0] ctrl, fc, k2, k1;
     logic [28:0] vstart, vend, accum;
     logic  [7:0] lvol, rvol;
     logic signed [23:0] o1n1, o2n1, o2n2, o3n1, o3n2, o4n1;
@@ -191,14 +198,14 @@ module rf_es5505
     wire  [14:0] step  = fc[15:1];
     wire  [19:0] ia0   = accum[28:9];
     wire  [19:0] ia1   = accum[28:9] + 20'd1;
-    wire  [18:0] tag0  = {bank, ia0[19:3]};
-    wire  [18:0] tag1  = {bank, ia1[19:3]};
+    wire  [19:0] tag0  = {bank, ia0[19:3]};
+    wire  [19:0] tag1  = {bank, ia1[19:3]};
     wire         stopped = |(ctrl & (C_STOP0 | C_STOP1));
     wire  [1:0]  lp = ctrl[11:10];
     wire  [1:0]  ca = ctrl[9:8];
 
     // the voice's two cache slots, registered copies with lookup
-    logic [83:0] lx, ly;
+    logic [84:0] lx, ly;
     wire x0 = lx[83] && (lx[82:64] == tag0), y0 = ly[83] && (ly[82:64] == tag0);
     wire x1 = lx[83] && (lx[82:64] == tag1), y1 = ly[83] && (ly[82:64] == tag1);
     wire have0 = x0 | y0, have1 = x1 | y1;
@@ -296,7 +303,7 @@ module rf_es5505
     wire wr_rec_we = wq_isbk | u_ctrl | u_fc | u_st | u_en | u_ac | u_k2 | u_k1 | u_lv | u_rv
                    | u_p4 | u_p31 | u_p32 | u_p21 | u_p22 | u_p1;
     wire [VW-1:0] wr_rec = {
-        wq_isbk ? d[1:0] : bank,
+        wq_isbk ? (d[2:0] & bank_mask) : bank,
         u_ctrl  ? ctrl_n : ctrl,
         u_fc    ? fc_n   : fc,
         u_st    ? st_n   : vstart,

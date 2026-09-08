@@ -85,6 +85,20 @@ module rf_video_mix
     output logic [13:0] pal_addr,
     input  logic [15:0] pal_q,
 
+    // 12-BIT PALETTE, per game. Most F3 games store a palette entry as a
+    // 32-bit 0RGB read here as two words: word 0's low byte is R, word 1
+    // carries G and B. Four sets (Space Invaders DX, Riding Fight, Arabian
+    // Magic, Ring Rage) instead pack all three into the LOW word as
+    //
+    //     .... .... .... ....  RRRR GGGG BBBB ....
+    //
+    // and MAME scales each nibble by 16 (taito_f3_v.cpp palette_24bit_w),
+    // which is exactly {nibble, 4'd0}. MAME selects this by GAME rather than
+    // by register -- its own comment there wonders whether the real chip
+    // picks it per line through 0x6400, but it does not implement that, so
+    // following the per-game flag matches the reference exactly.
+    input  logic        pal12,
+
     // ---- output ------------------------------------------------------------
     output logic        out_valid,
     output logic  [8:0] out_x,
@@ -436,10 +450,29 @@ module rf_video_mix
         else if (v9_3) pal_addr <= {p_dst[12:0], 1'b1};
 
         if (v9_2) sr <= pal_q[7:0];
-        if (v9_3) begin sg <= pal_q[15:8]; sb <= pal_q[7:0]; end
+        // In 12-bit mode all three components live in THIS word, so the
+        // R written at v9_2 is overwritten here a cycle later. Writing it
+        // twice rather than muxing v9_2 keeps the 24-bit path untouched.
+        if (v9_3) begin
+            if (pal12) begin
+                sr <= {pal_q[15:12], 4'd0};
+                sg <= {pal_q[11:8],  4'd0};
+                sb <= {pal_q[7:4],   4'd0};
+            end else begin
+                sg <= pal_q[15:8]; sb <= pal_q[7:0];
+            end
+        end
         if (v9_4) begin dr <= pal_q[7:0]; q_sb <= p_sb; q_db <= p_db; q_x <= p_x;
                         q_src <= p_src; q_y <= line_y; end
-        if (v9_5) begin dg <= pal_q[15:8]; db <= pal_q[7:0]; end
+        if (v9_5) begin
+            if (pal12) begin
+                dr <= {pal_q[15:12], 4'd0};
+                dg <= {pal_q[11:8],  4'd0};
+                db <= {pal_q[7:4],   4'd0};
+            end else begin
+                dg <= pal_q[15:8]; db <= pal_q[7:0];
+            end
+        end
     end
 
     // source * src_blend + dest * dst_blend, fixed 3-bit contributions

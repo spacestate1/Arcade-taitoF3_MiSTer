@@ -116,8 +116,19 @@ class Dump:
 
         pal = np.frombuffer(open(p + "paletteram.bin", "rb").read(),
                             np.uint8).reshape(-1, 4)
-        # 0x00RRGGBB, and gunlock is not one of the 12-bit palette games
-        self.clut = pal[:, 1:4].astype(np.int32)          # (8192, 3) as R,G,B
+        # 0x00RRGGBB for almost every set. Four games (Space Invaders DX,
+        # Riding Fight, Arabian Magic, Ring Rage) instead pack the colour into
+        # the LOW 16 bits as RRRRGGGGBBBB0000 and MAME scales each nibble by
+        # 16 (taito_f3_v.cpp palette_24bit_w). Bits 15:8 of the entry are
+        # byte 2 and bits 7:0 are byte 3, so R and G come out of byte 2 and B
+        # out of byte 3. F3_PAL12=1 selects it, matching the RTL's pal12.
+        if os.environ.get("F3_PAL12") == "1":
+            b2 = pal[:, 2].astype(np.int32)
+            b3 = pal[:, 3].astype(np.int32)
+            self.clut = np.stack([(b2 >> 4) * 16, (b2 & 0xF) * 16,
+                                  (b3 >> 4) * 16], axis=1)
+        else:
+            self.clut = pal[:, 1:4].astype(np.int32)      # (8192, 3) as R,G,B
 
         ctrl = [0] * 16
         for ln in open(p + "ctrl.txt"):

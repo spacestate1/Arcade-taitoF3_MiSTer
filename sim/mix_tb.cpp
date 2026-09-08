@@ -131,6 +131,11 @@ int main(int argc, char** argv) {
     // wrong value makes every line read the wrong control words.
     const int flip = getenv("F3_FLIP") ? atoi(getenv("F3_FLIP")) : 1;
     t->flip = flip; t->extend = 1;
+    // F3_PAL12=1 exercises the 12-bit palette path (Space Invaders DX,
+    // Riding Fight, Arabian Magic, Ring Rage). No reference frames exist
+    // for those games, so this is a LIVENESS check: the output must
+    // change, and change in the documented way.
+    t->pal12 = getenv("F3_PAL12") ? atoi(getenv("F3_PAL12")) : 0;
     for (int w = 0; w < 4; w++) t->ctrl0[w] = ctrl[2 * w] | ((uint32_t)ctrl[2 * w + 1] << 16);
     for (int i = 0; i < 8; i++) step();
     t->reset = 0; step();

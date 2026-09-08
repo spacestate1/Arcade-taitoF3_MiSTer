@@ -84,6 +84,10 @@ int main(int argc, char** argv) {
     }
 
     Vrf_gfx_bus* t = new Vrf_gfx_bus;
+    // SDRAM map profile 0 -- the 18.5 MB layout these dumps were made with.
+    // The bases are ports now (two map profiles, see cfg_map in Rayforce.sv).
+    t->base_lo = 0x440000;   // tilemap    byte 0x880000
+    t->base_hi = 0x640000;   // tilemap_hi byte 0xC80000
     Chan lo, hi;
 
     struct Case { int code, row; };

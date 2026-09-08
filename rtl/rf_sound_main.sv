@@ -73,7 +73,7 @@ module rf_sound_main
     output logic  [1:0] es_be,
     output logic        bk_we,          // sample bank for voice bk_voice
     output logic  [4:0] bk_voice,
-    output logic  [1:0] bk_data,
+    output logic  [2:0] bk_data,
     output logic        vl_we,          // MB87078 data_w(offset ^ 1, byte)
     output logic        vl_offset,
     output logic  [7:0] vl_data,
@@ -389,7 +389,7 @@ module rf_sound_main
                 if (sel_bank) begin
                     bk_we    <= 1'b1;
                     bk_voice <= a[5:1];
-                    bk_data  <= cpu_dout[1:0];
+                    bk_data  <= cpu_dout[2:0];
                     bk_reg[a[5:1]] <= cpu_dout;
                 end
                 if (sel_vol && be[1]) begin
