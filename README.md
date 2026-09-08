@@ -7,9 +7,15 @@ byte, not a new core.
 Checked against MAME, not by eye: video pixel-identical over 15 consecutive
 frames, sound sample-exact over 1.15 million samples.
 
-**Plays now:** Ray Force (*Gunlock*, *Layer Section*) in all three regions,
-Elevator Action Returns, Bubble Bobble II. Bubble Memories, Puzzle Bobble 2
-and Darius Gaiden are in progress.
+**Plays now: 22 of the 38 F3 parent sets**, on one bitstream. Ray Force
+(*Gunlock*, *Layer Section*) in all three regions, Elevator Action Returns,
+both Bubble Bobble games, all four Puzzle Bobbles, Darius Gaiden and its
+Extra Version, Arkanoid Returns, Grid Seeker, Space Invaders '95, Cleopatra
+Fortune, Twin Qix, Recalhorn, Quiz Theater, Pop 'n Pop, Gekirindan, Arabian
+Magic, Riding Fight and Ring Rage.
+
+Every remaining set has an MRA written except Kirameki Star Road, which
+needs sound-ROM banking the core does not implement.
 
 ## Status
 
@@ -19,9 +25,12 @@ and Darius Gaiden are in progress.
 | **Gunlock** / **Ray Force (Japan)** | Same board, one program chip different. Built, not yet run on hardware. |
 | *Elevator Action Returns* | Plays. Ten frames match MAME pixel for pixel. Sound not yet checked. |
 | *Bubble Bobble II* | Plays on hardware. Not yet frame-checked. |
-| *Puzzle Bobble 2* | Renders correctly on hardware. Never played through. |
-| *Darius Gaiden* | Boots and renders. Uses the pixel layer, which this core only mirrors. |
-| *Bubble Memories* | MRA written. Never loaded on a board. |
+| *Puzzle Bobble 2, 3, 4* | All render on hardware. Never played through. |
+| *Darius Gaiden* + *Extra Version* | Both render. Use the pixel layer, which this core only mirrors. |
+| *Bubble Memories* | Boots. Its EEPROM has never been written, so it asks for the TEST switch on a fresh card: OSD -> Service Mode -> reset, once. |
+| *Arkanoid Returns, Grid Seeker, Space Invaders '95, Cleopatra Fortune, Twin Qix, Recalhorn, Quiz Theater, Pop 'n Pop, Gekirindan* | Render and take coins. Added 2026-09-08, none played through. |
+| *Arabian Magic, Riding Fight, Ring Rage* | Render. These are the 12-bit palette games. |
+| The 13 largest sets | MRAs written against the 42 MB map profile; **not yet confirmed** on hardware. |
 
 **The bitstream and the MRAs must come from the same release.** The ROM
 layout changed when this became a general F3 core; mismatched files fail the
@@ -64,15 +73,16 @@ what each lever costs. Read it before adding anything to the RTL.
 | Bubble Bobble II | `experimental/Bubble Bobble II.mra` | `bublbob2.zip` | horizontal | plays on hardware |
 | Puzzle Bobble 2 | `experimental/Puzzle Bobble 2.mra` | `pbobble2.zip` | horizontal | renders correctly; never played through |
 | Darius Gaiden | `experimental/Darius Gaiden.mra` | `dariusg.zip` | horizontal | boots and renders; pixel layer only mirrored |
-| Bubble Memories | `experimental/Bubble Memories.mra` | `bubblem.zip` | horizontal | MRA written; never loaded |
+| Bubble Memories | `experimental/Bubble Memories.mra` | `bubblem.zip` | horizontal | boots; needs OSD -> Service Mode once to write its EEPROM |
+| 26 more sets | `experimental/*.mra` | see the MRA | mostly horizontal | added 2026-09-08; see the Status table for which are confirmed |
 
 Debug variants, same games: `Ray Force (zone 2).mra` and `Gunlock (zone 2).mra`
 open at zone 2 on coin + Start; `Darius Gaiden (write ring).mra` streams the
 CPU's writes over the serial port instead of the self-test page.
 
-One `gunlock.zip` covers all three Ray Force regions. Horizontal games need
-**Rotate: None** in the OSD. `experimental/` means it runs but has less
-evidence behind it.
+One `gunlock.zip` covers all three Ray Force regions. Horizontal games no
+longer need **Rotate: None** set by hand -- the core forces it per game.
+`experimental/` means it runs but has less evidence behind it.
 
 ## Controls
 
@@ -83,17 +93,25 @@ evidence behind it.
 | B | Bomb (lock-on laser) |
 | R | Start |
 | L | Insert coin |
-| Select | Service |
+| Select | Insert coin (measured; this table used to say Service) |
 | Start | Pause |
 
+The cabinet TEST switch is **not** on the pad at all. `rf_main.sv` drives it
+only from the OSD's Service Mode; the joystick's Service bit is the service
+*coin* input, a different signal. A game asking for the TEST switch needs
+OSD -> Service Mode -> reset.
+
 If the stick does nothing, assign it under MiSTer's *Define analog joystick*
-first. Input adds no latency in the core; the one frame that exists is
-MiSTer's rotation framebuffer.
+first. Input adds no latency in the core -- the joystick reaches the CPU's
+input port combinationally, with no register between them. The one frame
+that used to exist was MiSTer's rotation framebuffer, and horizontal games
+no longer go through it.
 
 ## Options
 
-- **Rotate** — CW is the right way up for Ray Force. None keeps raster order
-  and avoids one frame of latency.
+- **Rotate** — CW is the right way up for Ray Force. It applies only to the
+  vertical games; a horizontal one is never rotated whatever this says,
+  because rotating it costs a frame of latency and the wrong aspect.
 - **Flip Screen** — 180° on the rotated output. Does nothing with Rotate = None.
 - **Audio Boost** — the real board is very quiet (about 25–30 dB below a
   normal core). 8x is the default; 1x is MAME's own level.
@@ -103,6 +121,11 @@ MiSTer's rotation framebuffer.
   difficulty, lives and coinage are in the game's own service menu. Turn it
   on and reset.
 - **Self Test** — shows the 28-row diagnostic page instead of the game.
+
+**Rotation is automatic per game.** A horizontal game is never rotated,
+whatever Rotate says, because rotating one costs a frame of input latency
+through MiSTer's framebuffer and shows it at the wrong aspect. Rotate still
+chooses CW or CCW for the vertical games.
 
 **Saving settings:** the game writes its EEPROM when a setting changes;
 MiSTer writes that to `config/nvram/<mra>.nvm` when you open the OSD. So:
@@ -136,9 +159,13 @@ a bitstream came out and timing was met. Copy `output_files/Rayforce.rbf`
 somewhere before the next build — it wipes that directory.
 
 **After any memory change, read the RAM inference lines in the map log
-(`NUMWORDS`, `WIDTHAD`) before trusting a passing bench.** Twice now Quartus
-has built a memory differently from what Verilator simulated, and both times
-it was the bug.
+-- `NUMWORDS`, `WIDTHAD` AND `WIDTH` -- before trusting a passing bench.**
+Three times now Quartus has built a memory differently from what Verilator
+simulated, and every time it was the bug. The third (2026-09-08) was a
+one-bit WIDTH mismatch: a cache tag grew 19 -> 20 bits, the compare still
+read the old bit positions, and the cache silently never hit. Both benches
+still passed 0-differences, because a miss returns the same sample only
+slower. `WIDTH 84` against an 85-bit declaration was the only symptom.
 
 The Verilator benches are the regression suite and need no FPGA:
 

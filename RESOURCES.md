@@ -32,6 +32,40 @@ Note from the last three rows: **ALMs were never what stopped `13,312`** -- the
 12,288 build that followed had 2,567 ALMs spare. That failure was memory
 placement (MLAB/LAB), so ALM headroom does NOT mean `NREC` can grow.
 
+**2026-09-08 builds**, after the map profiles, 12-bit palette and 17-bit
+sprite codes went in:
+
+| build | contents | ALMs | spare | M10K | timing |
+|---|---|---:|---:|---|---|
+| `08111804` | PB3/4 bank, 12-bit palette, map profile 1 (36 MB) | 39,863 | 2,047 | 549 | met +0.247 |
+| `08130419` | + rotation fix, profile 1 corrected to 42 MB, tables to id 36 | 40,863 | 1,047 | 549 | **HDMI -0.093** |
+
+The 36 -> 42 MB correction and the per-game tables cost about 1,000 ALMs and
+took the design from 95 % to 98 %. `08111804` came out ~950 ALMs SMALLER than
+the build before it on more logic, which is the fitter variance this file
+already warns about rather than anything anyone did.
+
+## Where ALMs could still come from
+
+Measured from the map report's entity breakdown, largest first:
+
+- **`rf_hiscore` (1,824)** and its `shadow` store does not infer as memory:
+  `Warning (10999): can't infer memory for variable 'shadow'`. It has TWO
+  read ports at different addresses -- `sv_q <= shadow[sv_word]` registered
+  and `sh_word = shadow[sh_idx]` async -- plus writes, and an MLAB is one
+  write and one read. So Quartus builds 64 x 16 as ~1,024 flip-flops and two
+  64:1 muxes. The two readers never run together (`sv_word` only during
+  `ioctl_upload`, `sh_idx` only during inject/capture), so muxing them onto
+  one port makes it a real RAM. **No behaviour change** -- the best free
+  lever in the design.
+- **`MISTER_DOWNSCALE_NN`**, still commented out in the qsf. It affects
+  downscaling only, and this core outputs 320x224 which everything upscales.
+  Untried. `MISTER_SMALL_VBUF` is the riskier sibling: it shrinks the
+  scaler's line buffer and can change output modes.
+- The `sl_d` -> M10K move is still the biggest single lever at +163 LABs, and
+  still blocked on M10K at 549/553. Halving the debug write ring frees ~5 of
+  the ~10 needed.
+
 Two error numbers, and they mean different things:
 
 - **Error 170012** — a LAB shortage specifically. Seen four times in a row
