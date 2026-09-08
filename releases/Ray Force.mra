@@ -98,6 +98,17 @@
     <part name="d66-02.ic3" crc="dcdafaab"/>
   </rom>
 
+  <!-- Game config (Rayforce.sv "GAME CONFIG"): game id 0, visarea f3_224a,
+       extend=1, zone injector OFF. 0x00 is what the core already defaults to
+       with no index 1 at all, so this byte changes nothing; it is here to
+       say so. In particular bits [4:3] are the ZONE INJECTOR, and 00 means
+       the game starts at zone 1 the way the board does. The debug variant
+       that opens at zone 2 is a separate MRA, experimental/Ray Force
+       (zone 2).mra, which sets those bits to 01. -->
+  <rom index="1">
+    <part>00</part>
+  </rom>
+
   <!-- the 93C46 settings EEPROM: 64 words, saved to config/nvram/<mra>.nvm -->
   <nvram index="254" size="256"/>
 </misterromdescription>

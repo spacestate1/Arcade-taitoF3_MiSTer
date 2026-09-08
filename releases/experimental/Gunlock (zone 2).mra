@@ -107,7 +107,7 @@
        0xA0 = game id 6 ({bit 5, bits 7:6}), visarea 0, extend. -->
   <!-- ZONE INJECTOR: index 1 bits [4:3] = 1 -> a new game starts at ZONE 2.
        The rest of the byte is Gunlock's own config, unchanged: 0xA0 = game
-       id 6 ({bit 5, bits 7:6}), visarea f3_224a, extend. Debug variant --
+       id 6 ({bit 5, bits 7:6}), visarea f3_224a, extend. A debug variant:
        the worst sprite corruption is at the zone 2 boss. -->
   <rom index="1">
     <part>A8</part>
