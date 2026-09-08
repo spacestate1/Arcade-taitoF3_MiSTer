@@ -61,7 +61,7 @@ module rf_spr_gfx_bus
     input  logic        reset,
 
     // ---- request port (cpu domain) --------------------------------------
-    input  logic [14:0] code,          // tile number, already masked to the
+    input  logic [16:0] code,          // tile number, already masked to the
                                        // 32768 elements the 4 MB region
                                        // holds (Ray Force uses 16384 and
                                        // never sets bit 14)
@@ -149,9 +149,9 @@ module rf_spr_gfx_bus
     //  so a shallower cache would waste them. 3 M10Ks of data + 1 of tag per
     //  bus.
     localparam int CIDXW = 8;                       // 256 sets
-    localparam int CTAGW = 15 + 4 - CIDXW;          // key is {code,row} = 19
+    localparam int CTAGW = 17 + 4 - CIDXW;          // key is {code,row} = 21
     wire [CIDXW-1:0] cidx_req = {code[3:0], row};
-    wire [CTAGW-1:0] ctag_req = code[14:4];
+    wire [CTAGW-1:0] ctag_req = code[16:4];
 
     logic [CIDXW-1:0] cidx_r;
     logic [CTAGW-1:0] ctag_r;
@@ -254,8 +254,8 @@ module rf_spr_gfx_bus
                 chk_ref <= cdat_q;
                 if (cache_hit) chk_cnt <= 4'd0;
                 hit_r      <= 1'b0;
-                ch_lo_addr <= base_lo + {5'd0, ctag_r, cidx_r, 2'b00};
-                ch_hi_addr <= base_hi + {6'd0, ctag_r, cidx_r[CIDXW-1:1], 2'b00};
+                ch_lo_addr <= base_lo + {3'd0, ctag_r, cidx_r, 2'b00};
+                ch_hi_addr <= base_hi + {4'd0, ctag_r, cidx_r[CIDXW-1:1], 2'b00};
                 ch_lo_req  <= 1'b1;
                 ch_hi_req  <= 1'b1;
                 lo_got     <= 1'b0;

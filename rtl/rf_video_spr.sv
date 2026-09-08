@@ -249,12 +249,20 @@ module rf_video_spr
 
     // ---- stored sprite list, split by consumer ---------------------------
     // sl_y: {ty[17:0], sy[8:0], fy}                 -- the expand (prepass)
-    // sl_d: {tx[17:0], sx[8:0], code[14:0], color[7:0], fx} -- the draw
+    // sl_d: {tx[17:0], sx[8:0], code[16:0], color[7:0], fx} -- the draw
+    // CODE IS 17 BITS, not 15. rf_video_spr_list already produces all
+    // seventeen ({w[5][0], w[0]}, the same field MAME reads) and this
+    // stored only fifteen, which reaches 2^15 * 128 = 4 MB of sprite ROM.
+    // Ray Force has exactly 4 MB so nothing ever showed it, but every F3
+    // set with more -- twelve of them, up to Kaiser Knuckle's 13 MB -- had
+    // most of its sprite graphics unaddressable. 17 bits reaches 16 MB,
+    // which covers the whole library. 51 -> 53 bits is still three MLAB
+    // lanes of 20, so the store costs exactly what it did.
     // M10K, not MLAB: its read is registered (sly_q), so it does not need
     // the async read the MLAB arrays below are chosen for. 1024 x 28 bits is
     // 3 M10Ks against 64 MLABs, and M10K is the resource with headroom.
     (* ramstyle = "M10K, no_rw_check" *) logic [27:0] sl_y [0:NSPR-1];
-    (* ramstyle = "MLAB, no_rw_check" *) logic [50:0] sl_d [0:1][0:NSPR-1];
+    (* ramstyle = "MLAB, no_rw_check" *) logic [52:0] sl_d [0:1][0:NSPR-1];
     logic [10:0] nspr;
 
     // ---- bucket store, double banked: a COUNTING SORT ---------------------
@@ -589,10 +597,10 @@ module rf_video_spr
     wire        [3:0]  is_next = (rc_b > rc_a) ? is_row + 4'd1 : is_row - 4'd1;
     logic       [9:0]  sidx_r;
     always_ff @(posedge clk) sidx_r <= rc_sidx;
-    wire [50:0]        sd_w    = sl_d[rb][sidx_r];
-    wire signed [17:0] sd_tx   = sd_w[50:33];
-    wire        [8:0]  sd_sx   = sd_w[32:24];
-    wire       [14:0]  sd_code = sd_w[23:9];
+    wire [52:0]        sd_w    = sl_d[rb][sidx_r];
+    wire signed [17:0] sd_tx   = sd_w[52:35];
+    wire        [8:0]  sd_sx   = sd_w[34:26];
+    wire       [16:0]  sd_code = sd_w[25:9];
     wire        [7:0]  sd_col  = sd_w[8:1];
     wire               sd_fx   = sd_w[0];
     wire signed [17:0] sd_x8   = sd_tx + 18'sd128;
@@ -633,7 +641,7 @@ module rf_video_spr
     logic              fc_ok;            // fc's two-deep lookup has settled
 
     // ---- sprite gfx fetch, two buses ------------------------------------
-    logic [1:0][14:0] gfx_code;
+    logic [1:0][16:0] gfx_code;
     logic [1:0][3:0]  gfx_row;
     logic [1:0]       gfx_req, gfx_valid, gfx_busy;
     logic [15:0]      gfx_bad [0:1];
@@ -928,7 +936,7 @@ module rf_video_spr
             P_WALK: begin
                 if (s_valid && nspr < 11'(NSPR)) begin
                     sl_y[nspr]     <= {s_ty, s_sy, s_fy};
-                    sl_d[wb][nspr] <= {s_tx, s_sx, s_code[14:0], s_color, s_fx};
+                    sl_d[wb][nspr] <= {s_tx, s_sx, s_code, s_color, s_fx};
                     nspr <= nspr + 11'd1;
                 end
                 if (!clr_i[8]) begin

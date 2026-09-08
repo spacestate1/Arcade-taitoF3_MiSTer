@@ -110,6 +110,12 @@ int main(int argc, char** argv) {
     // F3 visarea, same encoding as rf_video_spr_list: 0 f3_224a (Ray
     // Force), 3 f3 (Elevator Action Returns). The cull bounds follow it.
     t->vis_mode = getenv("F3_VISMODE") ? atoi(getenv("F3_VISMODE")) : 0;
+    // SDRAM map profile 0 -- the layout every dumped reference was made with.
+    // These are PORTS since the core gained a second map profile; leaving them
+    // at their default 0 makes every sprite fetch read address 0 and draw
+    // nothing, which is exactly how this bench started failing.
+    t->gfx_base_lo = 0x140000;   // sprites    byte 0x280000
+    t->gfx_base_hi = 0x340000;   // sprites_hi byte 0x680000
     t->reset = 1; t->frame_start = 0;
     t->fb_addr = 0; t->rd_line = 0;
     // Parked from the start. The draw is no longer chased by the mixer, so
