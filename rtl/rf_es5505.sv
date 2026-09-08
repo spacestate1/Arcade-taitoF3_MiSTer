@@ -206,8 +206,18 @@ module rf_es5505
 
     // the voice's two cache slots, registered copies with lookup
     logic [84:0] lx, ly;
-    wire x0 = lx[83] && (lx[82:64] == tag0), y0 = ly[83] && (ly[82:64] == tag0);
-    wire x1 = lx[83] && (lx[82:64] == tag1), y1 = ly[83] && (ly[82:64] == tag1);
+    // Bit 84 is valid, [83:64] the 20-bit tag, [63:0] the line. These indices
+    // MUST move with the tag width: when the tag went 19 -> 20 bits for the
+    // third otisbank bit and these still read lx[83]/lx[82:64], the valid bit
+    // became the tag's top bit -- which is bank[2], zero for every game that
+    // is not Puzzle Bobble 3/4 -- so the cache never hit and every sample
+    // went to SDRAM. Quartus found it before the fitter did: it pruned the
+    // unread bit 84 and built an 84-bit MLAB from an 85-bit declaration, and
+    // that width mismatch in the map report is the only place it showed. The
+    // es5505 bench cannot see it, because a cache miss returns the same
+    // sample, only slower.
+    wire x0 = lx[84] && (lx[83:64] == tag0), y0 = ly[84] && (ly[83:64] == tag0);
+    wire x1 = lx[84] && (lx[83:64] == tag1), y1 = ly[84] && (ly[83:64] == tag1);
     wire have0 = x0 | y0, have1 = x1 | y1;
     wire [63:0] line0 = x0 ? lx[63:0] : ly[63:0];
     wire [63:0] line1 = x1 ? lx[63:0] : ly[63:0];
@@ -244,7 +254,7 @@ module rf_es5505
 
     // ---- register-write application (A_MOD), field by field ------------------
     // Each field of the record gets its own small update mux; the record is
-    // reassembled by wiring. (Rebuilding the whole 313-bit record in every
+    // reassembled by wiring. (Rebuilding the whole 314-bit record in every
     // arm of one case cost ~2000 ALMs.)
     wire lo_pg = (page < 7'h20);
     wire hi_pg = (page >= 7'h20) && (page < 7'h40);
@@ -427,8 +437,8 @@ module rf_es5505
             vn <= 5'd0; vf_ra <= 5'd0;
             // clear the voice file: STOP, volumes at half (compute_tables)
             vf_we <= 1'b1; vf_wa <= 5'd0;
-            vf_wd <= {2'd0, 16'h0003, 16'd0, 29'd0, 29'd0, 29'd0, 16'd0, 16'd0, 8'h80, 8'h80, 144'd0};
-            lcx_we <= 1'b1; lcy_we <= 1'b1; lc_wa <= 5'd0; lc_wd <= 84'd0;
+            vf_wd <= {3'd0, 16'h0003, 16'd0, 29'd0, 29'd0, 29'd0, 16'd0, 16'd0, 8'h80, 8'h80, 144'd0};
+            lcx_we <= 1'b1; lcy_we <= 1'b1; lc_wa <= 5'd0; lc_wd <= 85'd0;
         end else case (st)
             S_IDLE: begin
                 if (sweeping) begin
