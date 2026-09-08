@@ -866,8 +866,10 @@ always_comb begin
         //  1 elvactr   2 bublbob2  3 bubblem   4 dariusg   5 pbobble2
         //  8 arkretrn  9 pbobble3 10 pbobble4 13 cleopatr 14 twinqix
         // 15 recalh   16 qtheater 17 popnpop  19 dariusgx
+        // 20 arabianm 21 ridingf  22 ringrage -- the 12-bit sets, all ROT0
         6'd1,  6'd2,  6'd3,  6'd4,  6'd5,  6'd8,  6'd9,
-        6'd10, 6'd13, 6'd14, 6'd15, 6'd16, 6'd17, 6'd19: cfg_horizontal = 1'b1;
+        6'd10, 6'd13, 6'd14, 6'd15, 6'd16, 6'd17, 6'd19,
+        6'd20, 6'd21, 6'd22: cfg_horizontal = 1'b1;
         // 0 rayforce  6 gunlock  7 rayforcej 11 gseeker
         // 12 spcinv95 18 gekiridn  -- and anything without an id yet
         default: cfg_horizontal = 1'b0;

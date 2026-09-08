@@ -172,6 +172,8 @@ def emit(game, spec, out):
     print(f"wrote {out}")
 
 
+P12 = "A 12-BIT PALETTE GAME. MAME stores this set's colours as RRRRGGGGBBBB0000 in the low word and scales each nibble by 16, selected by game rather than by register (taito_f3_v.cpp palette_24bit_w). The core does the same, from the game id, and MRA index 2 bit [5] also turns it on. "
+SPARSE = 'Its ensoniq banks are sparse: the first ROM fills banks 0 and 1, bank 2 is empty, and the second sits in bank 3 (MAME offset 0x600000), so the hole is padded to land bank 3 on its boundary. Its sound ROM is half size and is streamed TWICE, because taito_en maps a 0x140000 region as set_entry(i % 2) = 0,1,0 and this core maps that window linearly.'
 MIRROR = "sound ROM is half size; streamed TWICE so the third bank window reads bank 0, which is what taito_en's set_entry(i % max) does with a 0x140000 region"
 
 GAMES = [
@@ -305,6 +307,41 @@ GAMES = [
    "tilemap_hi":[("raw","e49-06")],
    "ensoniq":[("pad",0x200000,"ensoniq bank 0 is empty in MAME"),
               ("raw","e49-03"),("raw","e49-04"),("raw","e49-05")]}),
+(dict(set="arabianm", name="Arabian Magic", year="1992",
+       rot="horizontal", cfg1=0x24, cfg2=0x02, vis=0, ext=0, id=20,
+       btn="Attack,Jump,-,-,-,-,Start,Coin,Service,Pause",
+       note=P12 + "Horizontal (MAME ROT0), extend=0. " + SPARSE),
+  {"maincpu":[("il32",["d29-23.ic40","d29-22.ic38","d29-21.ic36","d29-25.ic34"])],
+   "audiocpu":[("il16",["d29-18.ic5","d29-19.ic6"]),("il16",["d29-18.ic5","d29-19.ic6"])],
+   "sprites":[("il16",["d29-03.ic66","d29-04.ic67"])],
+   "sprites_hi":[("raw","d29-05.ic68")],
+   "tilemap":[("il32w",["d29-06.ic49","d29-07.ic50"])],
+   "tilemap_hi":[("raw","d29-08.ic51")],
+   "ensoniq":[("raw","d29-01.ic17"),("pad",0x100000,"ensoniq bank 2 is empty in MAME"),("raw","d29-02.ic18")]}),
+
+ (dict(set="ridingf", name="Riding Fight", year="1992",
+       rot="horizontal", cfg1=0x61, cfg2=0x02, vis=1, ext=1, id=21,
+       btn="Attack,Jump,-,-,-,-,Start,Coin,Service,Pause",
+       note=P12 + "Horizontal (MAME ROT0), visarea f3_224b. It has NEITHER a sprites_hi NOR a tilemap_hi ROM, so both regions are zeros. " + SPARSE),
+  {"maincpu":[("il32",["d34-12.40","d34-11.38","d34-10.36","d34_14.34"])],
+   "audiocpu":[("il16",["d34-07.5","d34-08.6"]),("il16",["d34-07.5","d34-08.6"])],
+   "sprites":[("il16",["d34-01.66","d34-02.67"])],
+   "sprites_hi":[],
+   "tilemap":[("il32w",["d34-05.49","d34-06.50"])],
+   "tilemap_hi":[],
+   "ensoniq":[("raw","d34-03.17"),("pad",0x100000,"ensoniq bank 2 is empty in MAME"),("raw","d34-04.18")]}),
+
+ (dict(set="ringrage", name="Ring Rage", year="1992",
+       rot="horizontal", cfg1=0xA4, cfg2=0x02, vis=0, ext=0, id=22,
+       btn="Punch,Kick,-,-,-,-,Start,Coin,Service,Pause",
+       note=P12 + "Horizontal (MAME ROT0), extend=0. " + SPARSE),
+  {"maincpu":[("il32",["d21-23.40","d21-22.38","d21-21.36","d21-25.34"])],
+   "audiocpu":[("il16",["d21-18.5","d21-19.6"]),("il16",["d21-18.5","d21-19.6"])],
+   "sprites":[("il16",["d21-02.66","d21-03.67"])],
+   "sprites_hi":[("raw","d21-04.68")],
+   "tilemap":[("il32w",["d21-06.49","d21-07.50"])],
+   "tilemap_hi":[("raw","d21-08.51")],
+   "ensoniq":[("raw","d21-01.17"),("pad",0x100000,"ensoniq bank 2 is empty in MAME"),("raw","d21-05.18")]}),
 ]
 
 # explicit filenames: deriving one from the display name silently overwrote
@@ -313,7 +350,9 @@ FILE = {"spcinv95": "Space Invaders '95", "cleopatr": "Cleopatra Fortune",
         "twinqix": "Twin Qix", "recalh": "Recalhorn", "qtheater": "Quiz Theater",
         "popnpop": "Pop 'n Pop", "gekiridn": "Gekirindan",
         "dariusgx": "Darius Gaiden Extra Version",
-        "pbobble3": "Puzzle Bobble 3", "pbobble4": "Puzzle Bobble 4"}
+        "pbobble3": "Puzzle Bobble 3", "pbobble4": "Puzzle Bobble 4",
+        "arabianm": "Arabian Magic", "ridingf": "Riding Fight",
+        "ringrage": "Ring Rage"}
 
 def target(g):
     return os.path.join(OUT, FILE[g["set"]] + ".mra")
