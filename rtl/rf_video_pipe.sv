@@ -146,11 +146,76 @@ module rf_video_pipe
     output logic [31:0] dbg_spr,       // {longest sprite line draw in clocks,
                                        //  lines the mixer started before the
                                        //  sprite draw had finished them}
-    output logic [31:0] dbg_rec        // {sprite-row records built last
+    output logic [31:0] dbg_rec,       // {sprite-row records built last
                                        //  prepass, rows dropped at the cap}
+
+    // ---- DIAGNOSTIC (see rf_spr_fb.sv) ----------------------------------
+    // {fold of the sprite pixels handed to DDR3, fold of the ones read back}
+    // INSTRUMENT (see rf_ddr_arb.sv): times a sprite line's DDR3 read came
+    // back short and the line had to be refetched from zero.
+    output logic [15:0] dbg_short,
+    // THE FOLD PAIR (rf_spr_fb.sv's own decision table). Same pixels summed
+    // either side of the DDR3 round trip, the write side delayed a frame so
+    // both describe the SAME drawn frame:
+    //   wr != rd            the round trip corrupts        -> DDR3 path
+    //   wr == rd != model   the draw wrote it wrong        -> record / list
+    //   wr == rd == model   both fine                      -> mixer / palette
+    // Built long ago and never routed to the page, which is why the question
+    // it answers has stayed open.
+    output logic [31:0] dbg_fold,
+    // TEARING INSTRUMENT (see rf_video_spr.sv): {writes to sprite RAM that
+    // landed while the list walk was reading it, frames in which that
+    // happened}.
+    input  logic        spr_wr_stb,
+    output logic [31:0] dbg_tear,
+    // SEQUENCE INSTRUMENTS (see rf_video_spr.sv): last four frames, newest first
+    output logic [31:0] dbg_seq_rec01, dbg_seq_rec23,
+    output logic [31:0] dbg_seq_nspr01, dbg_seq_nspr23,
+    output logic [31:0] dbg_seq_ovr,
+    // FOLDSEQ: rf_spr_fb's wr_fold -- the sum of every sprite pixel the draw
+    // handed to DDR3 that frame -- as a ring of the last four frames. On a
+    // paused glitch the prepass is identical every frame; if THIS is
+    // X Y X Y the draw's output is not, and the fault is in the draw.
+    // If it is constant, the draw is deterministic and the fault is in the
+    // mixer (see USEDSEQ).
+    output logic [31:0] dbg_seq_fold01, dbg_seq_fold23,
+    output logic [31:0] dbg_seq_used01, dbg_seq_used23,
+    output logic [31:0] dbg_sprpix,
+    // DIAGNOSTIC: the mixer's own inputs on a wrong pixel (rf_video_mix)
+    output logic [31:0] dbg_mixpix,
+    // 0 = no cap, 1 = 256 rows a line, 2 = 128
+    input  logic  [1:0] row_cap
 );
 
     localparam int H_START = 46;
+
+    // DIAGNOSTIC: 16 bits into 8, saturating rather than wrapping, so a
+    // clamped field reads as ">= 255" instead of as a small honest number.
+    function automatic logic [7:0] sat8(input logic [15:0] v);
+        sat8 = (v > 16'd255) ? 8'hFF : v[7:0];
+    endfunction
+
+    // DIAGNOSTIC: the two folds either side of the DDR3 round trip.
+    // Per-line verdict: which lines of the frame read back differently from
+    // the way they were written, and how many. The frame TOTALS that this
+    // replaces did their job -- they proved the read side returns pixels that
+    // were never written, and that it happens only on visarea f3 -- but a
+    // total cannot name a line, and the line numbers are the whole question
+    // now (f3 admits sprites on lines 24..30 and 255; f3_224a does not).
+    assign dbg_sprpix = {spr_bad_first, spr_bad_last, spr_bad_count};
+    assign dbg_fold   = {spr_wr_fold, spr_rd_fold};
+    assign dbg_tear   = {spr_tear_cnt, spr_tear_frames};
+    logic [15:0] fold_seq [0:3];
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            for (int i = 0; i < 4; i++) fold_seq[i] <= 16'd0;
+        end else if (frame_start) begin
+            fold_seq[0] <= spr_wr_fold;  fold_seq[1] <= fold_seq[0];
+            fold_seq[2] <= fold_seq[1];  fold_seq[3] <= fold_seq[2];
+        end
+    end
+    assign dbg_seq_fold01 = {fold_seq[0], fold_seq[1]};
+    assign dbg_seq_fold23 = {fold_seq[2], fold_seq[3]};
 
     // ---- raster-driven sequencing ----------------------------------------
     // hcnt holds each value for eight clocks (div 0..7); div picks the clock.
@@ -294,6 +359,15 @@ module rf_video_pipe
     wire         flip_eff = spr_flipscreen;
     logic [15:0] spr_rec_peak, spr_rec_drop;
     logic [15:0] spr_fetch_max, spr_rows_line_max;
+    logic [15:0] spr_fetch_bad;                     // fetch self-check, see rf_spr_gfx_bus
+    /* verilator lint_off UNUSED */
+    logic  [7:0] spr_unfinished;                    // DIAGNOSTIC (measured 0)
+    /* verilator lint_on UNUSED */
+    logic  [7:0] spr_defer;                         // DIAGNOSTIC
+    logic [15:0] spr_wr_fold, spr_rd_fold;          // DIAGNOSTIC
+    logic [15:0] spr_tear_cnt, spr_tear_frames;     // TEARING INSTRUMENT
+    logic  [7:0] spr_bad_first, spr_bad_last;       // DIAGNOSTIC
+    logic [15:0] spr_bad_count;                     // DIAGNOSTIC
     // peak-hold accumulators for the two sprite rows (see frame_end below)
     logic [15:0] h_spr_max, h_late, h_rec_max, h_drop;
     logic [15:0] h_fetch_max, h_rows_max;
@@ -316,11 +390,16 @@ module rf_video_pipe
 
     rf_video_spr sprites (
         .clk(clk), .reset(reset), .clk_ram(clk_ram), .vis_mode(vis_mode),
+        .spr_wr_stb(spr_wr_stb), .tear_cnt(spr_tear_cnt), .tear_frames(spr_tear_frames),
+        .seq_rec01(dbg_seq_rec01), .seq_rec23(dbg_seq_rec23),
+        .seq_nspr01(dbg_seq_nspr01), .seq_nspr23(dbg_seq_nspr23), .seq_ovr(dbg_seq_ovr),
+        .seq_used01(dbg_seq_used01), .seq_used23(dbg_seq_used23),
         .frame_start(frame_start), .prepass_busy(spr_prepass_busy),
         .line_busy(spr_line_busy), .lines_done(spr_lines_done),
         .o_flipscreen(spr_flipscreen),
         .rec_peak(spr_rec_peak), .rec_drop(spr_rec_drop),
-        .fetch_max(spr_fetch_max), .rows_line_max(spr_rows_line_max),
+        .fetch_max(spr_fetch_max), .rows_line_max(spr_rows_line_max), .fetch_bad(spr_fetch_bad),
+        .draw_unfinished(spr_unfinished), .row_cap(row_cap),
         .spr_addr(spr_addr), .spr_q(spr_q),
         .ch_a_lo_addr(spr_a_lo_addr), .ch_a_lo_dout(spr_a_lo_dout), .ch_a_lo_req(spr_a_lo_req), .ch_a_lo_ready(spr_a_lo_ready),
         .ch_a_hi_addr(spr_a_hi_addr), .ch_a_hi_dout(spr_a_hi_dout), .ch_a_hi_req(spr_a_hi_req), .ch_a_hi_ready(spr_a_hi_ready),
@@ -343,6 +422,9 @@ module rf_video_pipe
         .lb_addr(spr_fb_addr), .lb_q(spr_fb_q),
         .rd_line(mix_y), .rd_x(smp_x), .rd_color(sp_color),
         .miss(spr_fb_miss),
+        .wr_fold(spr_wr_fold), .rd_fold(spr_rd_fold), .defer_cnt(spr_defer),
+        .short_cnt(dbg_short),
+        .bad_first(spr_bad_first), .bad_last(spr_bad_last), .bad_count(spr_bad_count),
         .ddr_burstcnt(ddr_burstcnt), .ddr_addr(ddr_addr), .ddr_din(ddr_din),
         .ddr_be(ddr_be), .ddr_we(ddr_we), .ddr_rd(ddr_rd),
         .ddr_busy(ddr_busy), .ddr_dout(ddr_dout), .ddr_dout_ready(ddr_dout_ready)
@@ -367,7 +449,8 @@ module rf_video_pipe
         .sp_color(sp_color), .sp_used(sp_used),
         .pv_color(pv_color), .pv_opaque(pv_opaque), .pv_used(pv_used),
         .pal_addr(pal_addr), .pal_q(pal_q),
-        .out_valid(out_valid), .out_x(out_x), .out_rgb(out_rgb)
+        .out_valid(out_valid), .out_x(out_x), .out_rgb(out_rgb),
+        .line_y(mix_y), .dbg_pix(dbg_mixpix)
     );
 
     // ---- output line buffer ----------------------------------------------
@@ -457,10 +540,16 @@ module rf_video_pipe
                 if (!held) warm <= warm + 4'd1;
                 if (held && spr_fetch_max     > h_fetch_max) h_fetch_max <= spr_fetch_max;
                 if (held && spr_rows_line_max > h_rows_max)  h_rows_max  <= spr_rows_line_max;
+                // DIAGNOSTIC BUILD: the top byte carries draw_unfinished, so
+                // the longest-fetch field is clamped to 8 bits here. The
+                // board has been reading 0x54 (84) for it, a long way from
+                // saturating; if it ever reads FF, read it as ">= 255" and
+                // restore the full field. Everything else is unchanged.
                 dbg_sfetch <= held
-                    ? {(spr_fetch_max     > h_fetch_max) ? spr_fetch_max     : h_fetch_max,
+                    ? {sat8(spr_fetch_bad),   // was spr_defer (measured 0, theory dead)
+                       sat8((spr_fetch_max > h_fetch_max) ? spr_fetch_max : h_fetch_max),
                        (spr_rows_line_max > h_rows_max)  ? spr_rows_line_max : h_rows_max}
-                    : {spr_fetch_max, spr_rows_line_max};
+                    : {sat8(spr_fetch_bad), sat8(spr_fetch_max), spr_rows_line_max};
                 if (held && spr_rec_peak > h_rec_max) h_rec_max <= spr_rec_peak;
                 if (held && t_spr_max    > h_spr_max) h_spr_max <= t_spr_max;
                 if (held) begin

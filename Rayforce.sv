@@ -216,6 +216,13 @@ localparam CONF_STR = {
     "O[17:16],Audio Boost,8x,1x (exact),4x,16x;",
     "-;",
     "O[15],Pause When OSD Open,Off,On;",
+    // Darius Gaiden's vblank handler spins on a flag waiting for IRQ3 and
+    // only then runs its frame handler, so how much work the game fits in a
+    // frame depends on the 68020's real speed. "Full" is the core as it has
+    // always been built; the rest hold the CPU clock enable off in
+    // proportion. Watch the SPIN row on the self test page -- real hardware
+    // reads 764 there.
+    "O[20:18],CPU Speed,Full,94%,88%,81%,75%,62%,50%,37%;",
     "O[2],Service Mode,Off,On;",
     // "Off" MUST stay first. MiSTer's status word powers up at 0, so the
     // FIRST entry is what a fresh core load gets -- and with "On" first this
@@ -223,6 +230,11 @@ localparam CONF_STR = {
     // v1.1 shipped. A released core boots to the GAME; the self test is
     // something you ask for. (The Raiden 2 core carries the same note, after
     // the same mistake.)
+    //
+    // First entry is necessary and not sufficient: MiSTer replays a SAVED
+    // status word over the top of it, so a card used for bring-up boots a
+    // fresh bitstream straight back to the page. Both of these bits are
+    // therefore also armed in RTL -- see st_inherit / sv_inherit below.
     "O[3],Self Test,Off,On;",
     "O[5:4],UART Debug,Self Test,Audio Ring,Write Ring,Sound Ring;",
     "-;",
@@ -334,8 +346,65 @@ wire bus_reset = status[0] | buttons[1] | ~pll_locked;
 //                       On by default: the OSD cannot be driven remotely, and
 //                       a debug channel that has to be switched on by hand at
 //                       the cabinet is not much of a debug channel.
-wire       selftest_on = status[3];
-wire [1:0] uart_mode   = status[5:4];
+// A released core boots to the GAME -- and now it does so on a card that has
+// been used for bring-up, too. The OSD defaults are already Off (CONF_STR
+// above, and the note there about which entry comes first), but MiSTer
+// persists the status word per core in config/Rayforce.CFG, so a card that
+// has ever had Self Test switched on hands the bit straight back to every
+// bitstream loaded after it: a brand-new build boots to the diagnostic page
+// with nothing whatever wrong with it. That is v1.1's symptom with a
+// different cause, and an OSD default cannot fix it, because the OSD default
+// is not what a saved config replays.
+//
+// So both boot-into-a-test-screen bits are ARMED rather than merely
+// selected. The value each carries when the game is released -- the end of
+// the ROM download, which is where cpu_reset drops -- is treated as
+// inherited and ignored; only a deliberate OSD change after that turns the
+// thing on, and such a change necessarily takes the bit low first, which is
+// what re-arms it. Both regs power up armed, so an inherited page never
+// shows, not even during the download.
+//
+// The UART self-test log is deliberately NOT gated by this: uart_mode is its
+// own field, and the whole point of it (see below) is that it needs nobody
+// at the cabinet.
+logic st_inherit = 1'b1;   // Self Test    (status[3]) came from a saved config
+logic sv_inherit = 1'b1;   // Service Mode (status[2]) came from a saved config
+logic dl_active_d;
+always_ff @(posedge clk_sys) begin
+    dl_active_d <= ioctl_download;
+    if (dl_active_d && !ioctl_download) begin
+        // the game starts now: whatever the bits say at this instant was
+        // handed over by the config file, not asked for
+        st_inherit <= status[3];
+        sv_inherit <= status[2];
+    end else begin
+        // switched off by hand -> honour every change from here on
+        if (!status[3]) st_inherit <= 1'b0;
+        if (!status[2]) sv_inherit <= 1'b0;
+    end
+end
+
+wire       selftest_on = status[3] & ~st_inherit;
+wire       service_on  = status[2] & ~sv_inherit;
+// UART Debug mode. The OSD is the normal way to pick it -- but on a board
+// whose input is dead it is not reachable at ALL: pad input is enumerated
+// and ignored, and MiSTer does not replay config/Rayforce.CFG's status word
+// into the core (measured 2026-09-02 on build 02205428: byte 0 = 0x20 and
+// byte 1 bit 6 written and read back, core still saw uart_mode 0 and flip
+// screen off). The MRA's config bytes DO arrive -- the board picks its game
+// id, visarea and extend from them -- so index 2 bits [7:6], spare in the
+// layout above, override the OSD when non-zero. Zero keeps the OSD in
+// charge, and no MRA written before tonight carries an index-2 region at
+// all, so every one of them is unaffected. A debug capture is then a
+// variant MRA rather than a menu nobody can open.
+// The sprite row cap was built to test whether the line-budget overrun was
+// what broke the colours. The board answered that on build 01222500: the
+// draw ALWAYS finishes its 256 lines (draw_unfinished = 0), so the overrun
+// is not the mechanism and the cap has nothing left to prove. Tied off
+// rather than deleted -- constant propagation folds every mux behind it
+// away, which matters at 98 % ALM, and the RTL stays for the day a real
+// workload cap is wanted.
+wire [1:0] spr_row_cap = 2'd0;
 wire       uart_log_txd, uart_ring_txd;
 
 // Video options (CONF_STR above).
@@ -347,7 +416,16 @@ wire       no_rotate   = (rotate_sel == 2'd2);
 // core outputs is already inverted: rotating it CW puts it upright, and
 // that is the default (2026-08-28: CCW was upside down on the HDMI output).
 wire       rotate_ccw  = (rotate_sel == 2'd1);
-wire [2:0] scandoubler_fx = status[10:8];
+// TIED OFF to pay for the sprite record store (rf_video_spr NREC). fx==1 is
+// the framework's Hq2x, and fx also builds the scanline blender; holding it
+// at 0 lets Quartus fold both away. These are cosmetic filters on a core
+// that was at 4187/4191 LABs and was DROPPING SPRITE ROWS on every boss --
+// the trade is not close. status[10:8] is left defined so the OSD entry and
+// the saved config keep their meaning if the logic is ever restored.
+/* verilator lint_off UNUSED */
+wire [2:0] scandoubler_fx_osd = status[10:8];
+/* verilator lint_on UNUSED */
+wire [2:0] scandoubler_fx = 3'd0;
 wire       rate_60     = status[11];
 wire       video_rotated;
 // Flip Screen (OSD): 180 degrees on the ROTATED output, which is where a
@@ -360,6 +438,7 @@ wire       flip_screen = status[14];
 // Pause When OSD Open (OSD): freeze the game -- both CPUs -- while the menu
 // is up, the way a cabinet's pause would.
 wire       pause_osd   = status[15];
+wire [2:0] cpu_speed   = status[20:18];
 
 // The self-test page is drawn in raster order and must stay flat, so
 // rotation and the vertical aspect are both forced off while it shows.
@@ -643,6 +722,8 @@ wire        ring_full;
 
 wire [15:0] frame_cnt, irq2_cnt, irq3_cnt;
 wire [15:0] pf_wr_cnt, spr_wr_cnt, pal_wr_cnt, line_wr_cnt, txt_wr_cnt;
+wire [15:0] pal_wr_hi, pal_wr_lo;   // DIAGNOSTIC split, see rf_main
+wire [31:0] cpu_spin;               // {spin reads, tower A wr, tower B wr}
 wire [15:0] irq2_rate, irq3_rate;
 wire        irq_rate_valid;
 
@@ -705,12 +786,40 @@ logic [55:0] aud_ring_data;
 // Cleared at the START of a load and latched during it, so switching to an
 // MRA that carries no config byte cannot inherit the previous game's. It
 // must NOT be cleared by the OSD's Reset, which does not re-download.
-logic [7:0] game_cfg;
-logic       hard_reset_d;
+// TWO bytes now, on two ioctl indices. Index 1 is the original byte and its
+// meaning is untouched; index 2 is the extension, and because no MRA written
+// before today carries an index-2 region it reads as zero for every one of
+// them -- which is the default in every field below. Splitting across two
+// indices rather than widening index 1 to a 16-bit word is deliberate: a
+// one-byte region's padding in the upper half of the ioctl word is not
+// something to bet eight shipped MRAs on.
+//
+// THE WHOLE F3 LIBRARY FITS THIS LAYOUT. All 35 parent sets were tabulated
+// from MAME's GAME() lines, its init_ functions and f3_config_table (see
+// F3-LIBRARY.md); these are every per-game parameter they need:
+//
+//   index 1  [1:0]  visarea    0 f3_224a  1 f3_224b  2 f3_224c  3 f3
+//                              all four are implemented in rayforce_video
+//            [2]    extend     1 asks for NON-extend (inverted, see below)
+//            [5],[7:6]         game id, low three bits
+//   index 2  [2:0]  game id, high three bits -> 6 bits, 64 ids for 35 sets
+//            [4:3]  SPRITE LAG  0/1/2. RESERVED, NOT READ YET: the engine is
+//                              structurally lag 2 (double-banked buckets plus
+//                              the DDR3 framebuffer). MAME's table wants 2 for
+//                              8 sets, 1 for 22 and 0 for 3, so this is the
+//                              one per-game parameter the core cannot yet
+//                              express -- the field is here so the MRAs can
+//                              carry it the day the engine can.
+//            [5]    12-BIT PALETTE. RESERVED, NOT READ YET (ridingf, and with
+//                              extend=0 arabianm and ringrage).
+//            [7:6]  spare
+logic [15:0] game_cfg;
+logic        hard_reset_d;
 always_ff @(posedge clk_sys) begin
     hard_reset_d <= RESET;
-    if (RESET && !hard_reset_d) game_cfg <= 8'd0;          // a load begins
-    else if (ioctl_wr && ioctl_index == 8'd1) game_cfg <= ioctl_dout[7:0];
+    if (RESET && !hard_reset_d) game_cfg <= 16'd0;         // a load begins
+    else if (ioctl_wr && ioctl_index == 8'd1) game_cfg[7:0]  <= ioctl_dout[7:0];
+    else if (ioctl_wr && ioctl_index == 8'd2) game_cfg[15:8] <= ioctl_dout[7:0];
 end
 wire [1:0] cfg_vis  = game_cfg[1:0];
 // Bit [2] is live from this build, and its POLARITY IS INVERTED from the
@@ -720,7 +829,16 @@ wire [1:0] cfg_vis  = game_cfg[1:0];
 // both break the moment the bit is read. So the bit asks for the NEW
 // behaviour: 1 = non-extend (eight 32x32 playfields), 0 = extend as before.
 wire       cfg_extend = ~game_cfg[2];
-wire [1:0] cfg_game = game_cfg[7:6];        // which game's expectations
+// The game id is {index2[2:0], index1[5], index1[7:6]} -- six bits, so all 35
+// F3 parent sets have one and there is room for the regional variants too. It
+// grew in two steps and both preserved every MRA already written: bit 5 became
+// the third bit rather than sliding the field to [7:5], and the top three came
+// from a new index whose absence reads as zero. Same reasoning as the extend
+// bit's inverted sense: a shipped MRA must never change meaning.
+wire [5:0] cfg_game = {game_cfg[10:8], game_cfg[5], game_cfg[7:6]};
+
+wire [1:0] cfg_uart    = game_cfg[15:14];
+wire [1:0] uart_mode   = (cfg_uart != 2'd0) ? cfg_uart : status[5:4];
 
 // What the self test should EXPECT, per game. These are properties of the
 // ROM set, not of the core, so they belong here rather than in rf_selftest:
@@ -734,12 +852,12 @@ wire [1:0] cfg_game = game_cfg[7:6];        // which game's expectations
 logic [31:0] exp_bytes, exp_sum, exp_bist, exp_hash, exp_smp;
 always_comb begin
     case (cfg_game)
-        2'd0: begin                                    // Ray Force / Gunlock
+        6'd0: begin                                    // Ray Force (US)
             exp_bytes = 32'h01280000; exp_sum  = 32'h77E1C279;
             exp_bist  = 32'hD53D7C04; exp_hash = 32'h10620931;
             exp_smp   = 32'hB86C4865;
         end
-        2'd1: begin                                    // Elevator Action Returns
+        6'd1: begin                                    // Elevator Action Returns
             // All five are real expectations now. The first four come from
             // tools/rf_stream_sum.py over the MRA; the write hash comes from
             // tools/oracle_f3writes.lua, and the board already reports
@@ -749,24 +867,13 @@ always_comb begin
             exp_bist  = 32'h399D4BCA; exp_hash = 32'h93368F3C;
             exp_smp   = 32'h52DDF5D3;
         end
-        // The Bubble Bobble II / Bubble Memories expectations are MEASURED
-        // and correct -- they are in PREP-BUBBLE.md, and the arms below are
-        // ready to re-enable. They are commented out because the fitter is
-        // 10 LABs short (Error 170012) and this is the cheapest thing in the
-        // design to give up: with no arm, ids 2 and 3 fall to the default
-        // and the self-test rows REPORT what they find instead of judging
-        // it, which is the safe behaviour those rows were designed around.
-        // The right fix is to move all five expectations into an M10K ROM
-        // indexed by game_id -- block memory is only 75 % used and is not
-        // the binding resource -- which costs no LABs and scales to eight
-        // games. Do that with the cfg_game widening, then restore these.
-        //
-        //   bublbob2: bytes 01280000 sum A364D1A1 bist BE0F04C3
-        //             hash A7C4A522 smp 5597A419
-        //   bubblem:  bytes 01280000 sum A5923CBE bist C4BD753B
-        //             hash A81F4977 smp 9C2DE26F
-        /* -----------------------------------------------------------------
-        2'd2: begin                                    // Bubble Bobble II
+        // Restored 2026-09-01 with the cfg_game widening. These were
+        // commented out when the fitter came up 10 LABs short (Error
+        // 170012); compiling the framework's Y/C encoder and ascal's
+        // adaptive filter out bought that room back, so they are live arms
+        // again rather than an M10K ROM -- which remains the right answer
+        // the next time the LAB budget bites.
+        6'd2: begin                                    // Bubble Bobble II
             // Measured 2026-08-31 the same way EAR's were, each method first
             // reproduced on a game whose answer was already known: the stream
             // numbers from tools/rf_stream_sum.py over the MRA, the sample
@@ -778,12 +885,75 @@ always_comb begin
             exp_bist  = 32'hBE0F04C3; exp_hash = 32'hA7C4A522;
             exp_smp   = 32'h5597A419;
         end
-        2'd3: begin                                    // Bubble Memories
+        6'd3: begin                                    // Bubble Memories
             exp_bytes = 32'h01280000; exp_sum  = 32'hA5923CBE;
             exp_bist  = 32'hC4BD753B; exp_hash = 32'hA81F4977;
             exp_smp   = 32'h9C2DE26F;
         end
-        ----------------------------------------------------------------- */
+        6'd6: begin                                    // Gunlock (World)
+            // Gunlock and Ray Force (Japan) differ from Ray Force (US) by
+            // exactly ONE program ROM, and shared id 0 until 2026-09-01.
+            // That made the ROM CHECKSUM row judge their perfectly good
+            // stream against the US set's sum and report FAIL -- on the
+            // first boot of an MRA that ships in releases/, not
+            // experimental/. Measured with tools/rf_stream_sum.py; the
+            // sample fold is Ray Force's B86C4865 because the ensoniq ROMs
+            // are the same two chips. The write hash was ASSUMED to differ
+            // with the program ROM; measured 2026-09-01 it does not -- all
+            // three regions boot through the same F3 code and their first
+            // 4096 bus writes hash identically to Ray Force's 10620931.
+            // (The same run reproduced Bubble Memories' already-known
+            // A81F4977, which is what makes the number trustworthy here.)
+            exp_bytes = 32'h01280000; exp_sum  = 32'h20A2DBFE;
+            exp_bist  = 32'hD53D7C05; exp_hash = 32'h10620931;
+            exp_smp   = 32'hB86C4865;
+        end
+        6'd7: begin                                    // Ray Force (Japan)
+            // exp_hash measured 2026-09-01: identical to Ray Force's and
+            // Gunlock's, for the reason given in the Gunlock arm above.
+            exp_bytes = 32'h01280000; exp_sum  = 32'h5E17E105;
+            exp_bist  = 32'hD53D7C03; exp_hash = 32'h10620931;
+            exp_smp   = 32'hB86C4865;
+        end
+        6'd4: begin                                    // Darius Gaiden
+            // Three of the five are measured (2026-09-01) by
+            // tools/rf_stream_sum.py over the MRA -- which is itself proof
+            // the MRA lays the map out right, since this set fills the
+            // 18.5 MB universal map EXACTLY, with no padding in any region.
+            // The board reproduced all three on its first load. hash and smp
+            // stay zero, so those two rows REPORT what they find rather than
+            // judging it, until oracle_f3writes.lua and the rotl1+add fold of
+            // the first 64 KB of d87-01 have been run.
+            // exp_smp measured 2026-09-01: the rotl1+add fold of the first
+            // 64 KB of the ensoniq region, the same fold Rayforce.sv applies.
+            // The method was reproduced on all five games whose answer was
+            // already known (Ray Force B86C4865, Gunlock the same two chips,
+            // EAR 52DDF5D3, Bubble Bobble II 5597A419, Bubble Memories
+            // 9C2DE26F) before being trusted here. exp_hash still needs
+            // oracle_f3writes.lua, so that row still reports rather than
+            // judges.
+            // exp_hash measured 2026-09-01 with tools/oracle_f3writes.lua +
+            // rf_write_compare.py, which reproduced Ray Force's 10620931 in
+            // the same run. The board ALREADY REPORTS exactly this value,
+            // so Darius Gaiden's 68020 executes its first 4096 bus writes
+            // the way MAME does. All five expectations are now real for
+            // this set.
+            exp_bytes = 32'h01280000; exp_sum  = 32'hC1917DD8;
+            exp_bist  = 32'h7A0AC136; exp_hash = 32'h832D59FE;
+            exp_smp   = 32'h71E65420;
+        end
+        6'd5: begin                                    // Puzzle Bobble 2
+            // Measured 2026-09-01. The set has shipped in experimental/ and
+            // RENDERS CORRECTLY on hardware since the extend=0 build, but it
+            // had no arm at all, so its ROM CHECKSUM and SDRAM BIST rows
+            // reported instead of judging -- on a game whose stream numbers
+            // fall straight out of tools/rf_stream_sum.py over the MRA.
+            // exp_hash measured 2026-09-01 with oracle_f3writes.lua over
+            // pbobble2j, the set this MRA names.
+            exp_bytes = 32'h01280000; exp_sum  = 32'h3A0DD17A;
+            exp_bist  = 32'h8BB19BD5; exp_hash = 32'h93328F3C;
+            exp_smp   = 32'h2058055F;
+        end
         default: begin                                 // not yet measured
             exp_bytes = 32'h00000000; exp_sum  = 32'h00000000;
             exp_bist  = 32'h00000000; exp_hash = 32'h00000000;
@@ -806,6 +976,7 @@ end
 // 64 words, big-endian in the file: the loader's 16-bit word arrives
 // little-endian, so both directions swap the lanes.
 wire        hs_pause, hs_ram_we, hs_save_ready;
+wire        hs_sh_ok, hs_injected;
 wire [15:0] hs_ram_addr, hs_ram_wdata, hs_ram_q;
 wire  [1:0] hs_ram_be;
 rf_hiscore hiscore (
@@ -815,7 +986,8 @@ rf_hiscore hiscore (
     .sv_word(ioctl_addr[6:1]), .sv_data(hs_sv_data), .ioctl_upload(ioctl_upload),
     .hs_pause(hs_pause), .hs_addr(hs_ram_addr), .hs_wdata(hs_ram_wdata),
     .hs_be(hs_ram_be), .hs_we(hs_ram_we), .hs_q(hs_ram_q),
-    .save_ready(hs_save_ready)
+    .save_ready(hs_save_ready),
+    .sh_ok_o(hs_sh_ok), .injected_o(hs_injected)
 );
 // The 256-byte blob splits: bytes 0-127 the EEPROM, 128-255 the high-score
 // snapshot (rf_hiscore). ioctl_addr[7] is the divider, both directions.
@@ -851,7 +1023,7 @@ rf_main main
     .vbl_rise(vbl_rise),
     .j0(joy0_in), .j1(joy1_in),
     .pause(pause_eff),
-    .test_sw(status[2]),
+    .test_sw(service_on),
     .nv_wr(nv_wr), .nv_addr(nv_addr), .nv_data(nv_data),
     .hs_pause(hs_pause), .hs_addr(hs_ram_addr), .hs_wdata(hs_ram_wdata),
     .hs_be(hs_ram_be), .hs_we(hs_ram_we), .hs_q(hs_ram_q),
@@ -870,8 +1042,11 @@ rf_main main
     .wr_count(wr_count), .wr_hash(wr_hash),
     .last_pc(last_pc), .trap_oor(trap_oor),
     .frame_cnt(frame_cnt), .irq2_cnt(irq2_cnt), .irq3_cnt(irq3_cnt),
-    .pf_wr_cnt(pf_wr_cnt), .spr_wr_cnt(spr_wr_cnt),
-    .pal_wr_cnt(pal_wr_cnt), .line_wr_cnt(line_wr_cnt),
+    .pf_wr_cnt(pf_wr_cnt), .spr_wr_cnt(spr_wr_cnt), .spr_wr_stb(spr_wr_stb),
+    .pal_wr_cnt(pal_wr_cnt),
+    .pal_wr_hi(pal_wr_hi), .pal_wr_lo(pal_wr_lo), .line_wr_cnt(line_wr_cnt),
+    .cpu_speed(cpu_speed), .cpu_spin(cpu_spin),
+    .zone_inj(game_cfg[4:3]),          // MRA index 1 bits [4:3]: start zone 2..4
     .txt_wr_cnt(txt_wr_cnt),
     .irq2_rate(irq2_rate), .irq3_rate(irq3_rate),
     .irq_rate_valid(irq_rate_valid),
@@ -883,6 +1058,8 @@ rf_main main
     .snd_dp_be(snd_dp_be), .snd_dp_q(snd_dp_q),
     .snd_reset(snd_reset),
     .ring_ext_sel(uart_mode == 2'd3 || uart_mode == 2'd1),
+    // Write Ring only: arm on the tower palette copy, see rf_main
+    .ring_arm_en(uart_mode == 2'd2),
     .ring_ext_we(uart_mode == 2'd1 ? aud_ring_we : snd_ring_we),
     .ring_ext_data(uart_mode == 2'd1 ? aud_ring_data : snd_ring_data),
     .pivot_wr_cnt(pivot_wr_cnt)
@@ -1199,6 +1376,27 @@ wire [8:0] vid_hcnt, vid_vcnt;
 wire [23:0] game_rgb;
 wire [31:0] vid_dbg_lines, vid_dbg_fetch, vid_dbg_max, vid_dbg_nz, vid_dbg_spr, vid_dbg_rec;
 wire [31:0] vid_dbg_sfetch;
+wire [31:0] vid_dbg_sprpix;   // DIAGNOSTIC: per-line framebuffer verdict
+// INSTRUMENT: the two halves of the shared-DDR3-port question. Every counter
+// this core already has sits on the sprite side of that port -- the side that
+// WINS arbitration -- which is why they all read clean while the screen is
+// visibly wrong under load. See rf_ddr_arb.sv.
+wire [15:0] rot_stall_cnt;    // rotation writes that hit a busy port -- the
+                              // pixels the UNFIXED path silently lost
+wire [15:0] rot_lost_cnt;     // rotation writes dropped by a full FIFO (must be 0)
+wire  [7:0] rot_peak_cnt;     // FIFO high-water mark -- says whether FD is right
+wire [31:0] vid_dbg_fold;     // {wr_fold, rd_fold} either side of the DDR3 round trip
+wire        spr_wr_stb;       // CPU write to sprite RAM (rf_main)
+wire [31:0] vid_dbg_tear;     // {writes during the walk, frames affected}
+wire [31:0] vid_seq_rec01, vid_seq_rec23, vid_seq_nspr01, vid_seq_nspr23, vid_seq_ovr;
+wire [31:0] vid_seq_fold01, vid_seq_fold23, vid_seq_used01, vid_seq_used23;
+wire [15:0] spr_short_cnt;    // a line's read came back short (kept wired for
+                              // the next investigation; not on the page now)
+wire        _unused_spr_short = &{1'b0, spr_short_cnt};
+// The rotation instruments stay in the RTL (the FIFO is a real fix for a real
+// Avalon violation) but are off the page now that the port is exonerated.
+wire        _unused_rot = &{1'b0, rot_stall_cnt, rot_lost_cnt, rot_peak_cnt};
+wire [31:0] vid_dbg_mixpix;   // DIAGNOSTIC: the mixer's inputs on a wrong pixel
 
 // ---- the sprite framebuffer's DDR3 port --------------------------------
 wire  [7:0] fb_burstcnt;
@@ -1259,6 +1457,13 @@ rf_video_pipe vpipe
     .dbg_lines(vid_dbg_lines), .dbg_fetch(vid_dbg_fetch), .dbg_max(vid_dbg_max),
     .dbg_nz(vid_dbg_nz), .dbg_spr(vid_dbg_spr), .dbg_rec(vid_dbg_rec),
     .dbg_sfetch(vid_dbg_sfetch),
+    .dbg_short(spr_short_cnt), .dbg_fold(vid_dbg_fold),
+    .spr_wr_stb(spr_wr_stb), .dbg_tear(vid_dbg_tear),
+    .dbg_seq_rec01(vid_seq_rec01), .dbg_seq_rec23(vid_seq_rec23),
+    .dbg_seq_nspr01(vid_seq_nspr01), .dbg_seq_nspr23(vid_seq_nspr23), .dbg_seq_ovr(vid_seq_ovr),
+    .dbg_seq_fold01(vid_seq_fold01), .dbg_seq_fold23(vid_seq_fold23),
+    .dbg_seq_used01(vid_seq_used01), .dbg_seq_used23(vid_seq_used23),
+    .dbg_sprpix(vid_dbg_sprpix), .dbg_mixpix(vid_dbg_mixpix), .row_cap(spr_row_cap),
     .ddr_burstcnt(fb_burstcnt), .ddr_addr(fb_addr), .ddr_din(fb_din),
     .ddr_be(fb_be), .ddr_we(fb_we), .ddr_rd(fb_rd),
     .ddr_busy(fb_busy), .ddr_dout(fb_dout), .ddr_dout_ready(fb_dout_ready)
@@ -1291,6 +1496,7 @@ rf_selftest selftest
 
     .dl_active(ioctl_download), .dl_seen(dl_seen),
     .game_id(cfg_game),
+    .hs_sh_ok(hs_sh_ok), .hs_injected(hs_injected),
     .exp_bytes(exp_bytes), .exp_sum(exp_sum), .exp_bist(exp_bist), .exp_hash(exp_hash),
     .dl_bytes(dl_bytes), .dl_sum(dl_sum),
     .bist_sum(bist_sum), .bist_done(bist_done),
@@ -1300,11 +1506,31 @@ rf_selftest selftest
     .irq2_rate(irq2_rate), .irq3_rate(irq3_rate),
     .irq_rate_valid(irq_rate_valid),
     .pal_wr_cnt(pal_wr_cnt), .pf_wr_cnt(pf_wr_cnt), .spr_wr_cnt(spr_wr_cnt),
+    // DIAGNOSTIC BUILD: rows 17-20 (PLAYFIELD / SPRITE / LINE RAM / TEXT AND
+    // CHAR, bring-up write-count liveness the working pipe already implies)
+    // and row 25 carry the prepass SEQUENCE instruments instead. Restore
+    // once the sprite corruption is closed.
+    // RECSEQ / NSPRSEQ proved the prepass identical frame to frame on a
+    // paused glitch (2026-09-07 evening); rows 17-20 now carry FOLDSEQ and
+    // USEDSEQ, which split the DRAW from the MIXER.
+    .seq_rec01(vid_seq_fold01), .seq_rec23(vid_seq_fold23),
+    .seq_nspr01(vid_seq_used01), .seq_nspr23(vid_seq_used23),
+    ._unused_seq(&{1'b0, vid_seq_rec01, vid_seq_rec23, vid_seq_nspr01, vid_seq_nspr23}),
+    .pal_wr_hi(pal_wr_hi), .pal_wr_lo(pal_wr_lo),
     .line_wr_cnt(line_wr_cnt), .txt_wr_cnt(txt_wr_cnt),
     .build_hex(`RF_BUILD_HEX),
     .vid_lines(vid_dbg_lines), .vid_fetch(vid_dbg_fetch), .vid_max(vid_dbg_max),
-    .vid_nz(vid_dbg_nz), .vid_spr(vid_dbg_spr), .vid_rec(vid_dbg_rec),
+    // DIAGNOSTIC BUILD: row 25 is borrowed from TILE NZ:PF:PAL (a bring-up
+    // liveness check the working pipe already implies) and carries
+    // SPRFOLD WR:RD instead -- the two folds either side of the sprite
+    // framebuffer's DDR3 round trip. ROTSTL:PK:LOST had this row for one
+    // build and did its job: 0 stalls across 210 samples of gameplay ruled
+    // the shared DDRAM port out entirely. Restore vid_dbg_nz and
+    // rf_selftest's row 25 once the sprite corruption is closed.
+    .vid_nz(vid_seq_ovr),
+    .vid_spr(vid_dbg_spr), .vid_rec(vid_dbg_rec),
     .vid_sfetch(vid_dbg_sfetch),
+    .vid_sprpix(vid_dbg_sprpix),   // STALELN:AGE:CNT, see rf_spr_fb
     .snd_diag1({pivot_wr_cnt, snd_pc[15:0]}),
     .snd_diag2({snd_es_wr_cnt, 15'd0, snd_running}),
     .snd_diag3({smp_bist_sum[15:0], es_dbg_overrun[7:0], es_dbg_wqdrop[7:0]}),
@@ -1429,6 +1655,8 @@ screen_rotate screen_rotate
 rf_ddr_arb ddr_arb
 (
     .clk(clk_sys),
+    .reset(reset),
+    .rot_stall(rot_stall_cnt), .rot_lost(rot_lost_cnt), .rot_peak(rot_peak_cnt),
     .r_burstcnt(rot_burstcnt), .r_addr(rot_addr), .r_din(rot_din),
     .r_be(rot_be), .r_we(rot_we), .r_busy(rot_busy),
     .f_burstcnt(fb_burstcnt), .f_addr(fb_addr), .f_din(fb_din),

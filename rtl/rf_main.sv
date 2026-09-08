@@ -117,7 +117,43 @@ module rf_main
     output logic [15:0] irq3_cnt,
     output logic [15:0] pf_wr_cnt,
     output logic [15:0] spr_wr_cnt,
+    // TEARING INSTRUMENT: the raw strobe, so the video side can count the
+    // writes that land WHILE the sprite list walk is reading the same RAM.
+    // The walk starts at frame_start and streams for as long as it takes,
+    // with no snapshot and no interlock -- so a CPU write during it makes the
+    // walk see part of the old list and part of the new one. Neither MAME
+    // (which reads sprite RAM atomically) nor the bench (which feeds it a
+    // static snapshot) can ever produce that, which is why the picture is
+    // right in both and wrong on the board.
+    output logic        spr_wr_stb,
     output logic [15:0] pal_wr_cnt,
+    // DIAGNOSTIC: palette writes split at entry 0x1000 (CPU address bit 14).
+    // Darius Gaiden's level-load rewrites both halves in one burst; on the
+    // board the lower half lands (the sky is right) and the upper half's
+    // burst-only entries keep their title-screen values, while the same
+    // upper half accepts the ~83 writes/frame the game animates
+    // continuously. These counters split the one open question: does the
+    // CPU ISSUE the upper-half burst at level entry. A ~2000 jump at the
+    // transition with the colours staying stale means the writes are being
+    // lost in the core; no jump means the CPU took a different path.
+    output logic [15:0] pal_wr_hi,
+    output logic [15:0] pal_wr_lo,
+    input  logic  [2:0] cpu_speed,      // OSD throttle, 0 = core as built
+    // ZONE INJECTOR (Ray Force). 0 = off. 1..3 = start the game at zone
+    // 2..4. Ray Force's new-game init (ROM 0x004810) stores the constant 1
+    // into the zone word at 0x402312 and the stage loader consumes it in
+    // the SAME frame, so nothing that writes RAM once a frame can change
+    // it -- proved in MAME: holding the byte every frame did nothing,
+    // substituting the value AT that store loaded zone 2 (44 % of pixels
+    // differ from a zone-1 frame at the same instant). So this is a
+    // bus-level swap: when the CPU writes 0x0001 to that word, the RAM
+    // sees {8'h00, zone}. Zone clears write 2, 3, 4... and pass untouched;
+    // GAME OVER -> new game writes 1 -> substituted again. Reaching a
+    // boss on demand is the point: the worst sprite corruption is at the
+    // zone 2 boss and no bench reproduces it. Carried on MRA index 1
+    // bits [4:3], which were spare (Rayforce.sv GAME CONFIG).
+    input  logic  [1:0] zone_inj,
+    output logic [31:0] cpu_spin,       // {spin reads, tower A writes, tower B writes}
     output logic [15:0] line_wr_cnt,
     output logic [15:0] txt_wr_cnt,
     // Interrupt acknowledges in the last 64 frames. A running game takes
@@ -141,6 +177,17 @@ module rf_main
     // when ring_ext_sel, the write ring records ring_ext_* (the sound
     // CPU's chip writes) instead of this CPU's writes
     input  logic        ring_ext_sel,
+    // TRIGGERED CAPTURE (Write Ring mode only). The ring is circular, so it
+    // always holds the last 2048 writes -- but the UART needs ~2.5 s to read
+    // 2048 entries out and this CPU refills the ring far faster than that,
+    // so a live read-out is TORN: the head of the dump and its tail come
+    // from different moments and the pass cannot be compared against MAME's
+    // stream. With this high the ring instead ARMS on the first write into
+    // Darius Gaiden's tower palette blocks, records exactly one ring-full
+    // from that instant, and stops -- a coherent 2048-write window around
+    // the event, which is what a comparison needs. Low restores the circular
+    // behaviour every other mode relies on, bit for bit.
+    input  logic        ring_arm_en,
     input  logic        ring_ext_we,
     input  logic [55:0] ring_ext_data,
     // pivot RAM is a stub (Ray Force only ever CLEARS it -- one 64 KB
@@ -174,6 +221,36 @@ module rf_main
     logic        prog_valid_lat;
     logic [15:0] prog_data_lat;
 
+    // ---- CPU speed throttle ---------------------------------------------
+    // The F3's 68020 runs at 16.67 MHz. This core clocks TG68K from clk_sys
+    // with a clock enable and TG68K is not cycle-accurate, so the effective
+    // speed is whatever the enable rate and the wait states happen to make.
+    // Darius Gaiden is sensitive to it -- see the speedometer at the bottom
+    // of this file for why and for the number to aim at. Setting 0 is the
+    // core exactly as it was built before this knob existed, so every other
+    // game is untouched until someone selects otherwise.
+    logic [7:0] thr_acc;
+    logic       thr_go;
+    wire  [7:0] thr_inc = (cpu_speed == 3'd1) ? 8'd240 :   // 94 %
+                          (cpu_speed == 3'd2) ? 8'd224 :   // 88 %
+                          (cpu_speed == 3'd3) ? 8'd208 :   // 81 %
+                          (cpu_speed == 3'd4) ? 8'd192 :   // 75 %
+                          (cpu_speed == 3'd5) ? 8'd160 :   // 62 %
+                          (cpu_speed == 3'd6) ? 8'd128 :   // 50 %
+                                                8'd96;     // 37 %
+
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            thr_acc <= 8'd0;
+            thr_go  <= 1'b1;
+        end else if (cpu_speed == 3'd0) begin
+            thr_acc <= 8'd0;
+            thr_go  <= 1'b1;
+        end else begin
+            {thr_go, thr_acc} <= {1'b0, thr_acc} + {1'b0, thr_inc};
+        end
+    end
+
     always_ff @(posedge clk) begin
         if (reset) begin
             clkena    <= 1'b0;
@@ -188,7 +265,7 @@ module rf_main
                     rom_wait <= 1'b0;
                     clkena   <= 1'b1;
                 end
-            end else if (!clkena && !pause && !hs_pause) begin
+            end else if (!clkena && !pause && !hs_pause && thr_go) begin
                 // pause: no further clock enables, so the CPU freezes between
                 // bus cycles (a ROM fetch in flight still completes above)
                 if (sel_rom && (busstate == 2'b00 || busstate == 2'b10)) begin
@@ -251,6 +328,7 @@ module rf_main
     wire sel_pal   = (a[23:15] == 9'b010001000);                    // 440000-447FFF
     wire sel_ctrl  = (a[23:16] == 8'h4A);
     wire sel_spr   = (a[23:16] == 8'h60);                           // 600000-60FFFF
+    assign spr_wr_stb = cpu_wr && sel_spr && clkena;
     wire sel_61    = (a[23:16] == 8'h61);
     wire sel_pf    = sel_61 && !a[15];                              // 610000-617FFF
     wire sel_pfx   = sel_61 && (a[15:14] == 2'b10);                 // 618000-61BFFF
@@ -494,7 +572,7 @@ module rf_main
     rf_bram_be #(.AW(16)) u_ram (
         .clk(clk),
         .waddr(hs_pause ? hs_addr : a[16:1]),
-        .wdata(hs_pause ? hs_wdata : cpu_dout),
+        .wdata(hs_pause ? hs_wdata : (zone_hit ? {8'h00, 6'd0, zone_inj} + 16'd1 : cpu_dout)),
         .wren(hs_pause ? hs_we : (cpu_wr && sel_ram && clkena)),
         .be(hs_pause ? hs_be : be),
         .raddr(hs_pause ? hs_addr : a[16:1]), .q(ram_q));
@@ -665,7 +743,12 @@ module rf_main
     // one signal (and letting the ring un-freeze the hash cost one build
     // and a FAIL on Ray Force's WRITE HASH row to notice).
     wire wr_frozen = wr_count[12];               // 4096 reached: counters stop
-    wire ring_wrapped = |wr_count[31:11];        // more than the 2048 held
+    // 512 entries now (was 2048, was 4096): 56 x 512 is ~3 M10Ks against 11,
+    // and the room went to the sprite record store and the tile-row cache
+    // (RESOURCES.md). 512 writes is still the whole of a triggered capture
+    // window and more than any UART comparison has needed.
+    localparam int RING_AW = 9;
+    wire ring_wrapped = |wr_count[31:RING_AW];   // more than the ring holds
     assign ring_full = ring_ext_sel ? snd_frozen : ring_wrapped;
 
     wire bus_write = clkena && (busstate == 2'b11) && !nWr;   // every write
@@ -690,7 +773,38 @@ module rf_main
         if (reset) snd_wr_count <= 13'd0;
         else if (ring_ext_sel && ring_ext_we && !snd_frozen) snd_wr_count <= snd_wr_count + 13'd1;
     end
-    wire        ring_adv  = ring_ext_sel ? (ring_ext_we && !snd_frozen) : bus_write;
+    // ---- triggered capture (see ring_arm_en) -----------------------------
+    // twr_a / twr_b are the tower palette blocks, declared with the region
+    // counters below. Arming on the FIRST such write and freezing one
+    // ring-full later brackets the palette copy itself. Both flops stay 0
+    // when ring_arm_en is low, so ring_adv below is then exactly what it
+    // was before this existed.
+    logic ring_armed, ring_frz;
+    // Arm LATE, not on the first such write. Measured on build 02205428:
+    // twr_a_cnt / twr_b_cnt both reach 0xFF within a minute, so these writes
+    // are CONTINUOUS rather than a one-off level-entry copy -- an earlier
+    // 14-second capture that showed them parked at 160/216 was simply too
+    // short a window, and reading it as "frozen" was wrong. Arming on the
+    // first write therefore brackets the TITLE screen, which is exactly the
+    // moment whose palette we are not interested in. Waiting for the counter
+    // to pass 0xC0 puts the 2048-write window well inside attract play.
+    wire  ring_trig = ring_arm_en && !ring_armed
+                      && (twr_a || twr_b) && (twr_a_cnt > 8'hC0);
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            ring_armed <= 1'b0;
+            ring_frz   <= 1'b0;
+        end else if (ring_trig) begin
+            ring_armed <= 1'b1;          // wptr is reset to 0 below, so the
+            ring_frz   <= 1'b0;          // dump starts at the trigger
+        end else if (ring_armed && !ring_frz && ring_raw_adv
+                     && ring_wptr == 11'((1 << RING_AW) - 1)) begin
+            ring_frz   <= 1'b1;          // one full lap recorded: hold it
+        end
+    end
+
+    wire        ring_raw_adv = ring_ext_sel ? (ring_ext_we && !snd_frozen) : bus_write;
+    wire        ring_adv     = ring_raw_adv && !ring_frz;
     wire [55:0] ring_wdat = ring_ext_sel ? ring_ext_data
                                          : {~nUDS, ~nLDS, a[23:1], 15'd0, wdat};
 
@@ -700,7 +814,8 @@ module rf_main
             wr_hash  <= 32'd0;
             ring_wptr<= 11'd0;
         end else begin
-            if (ring_adv) ring_wptr <= ring_wptr + 11'd1;
+            if (ring_trig)     ring_wptr <= 11'd0;
+            else if (ring_adv) ring_wptr <= (ring_wptr + 11'd1) & 11'((1 << RING_AW) - 1);
             if (do_write) begin
                 wr_count  <= wr_count + 32'd1;
                 wr_hash   <= f2;
@@ -713,12 +828,12 @@ module rf_main
     // the binding resource on this device (539 of 553 in B13). Halving it
     // frees 12 and still holds a 2048-write comparison against MAME and a
     // 69 ms audio capture, both far more than any check has needed.
-    rf_bram #(.WIDTH(56), .AW(11)) u_ring (
+    rf_bram #(.WIDTH(56), .AW(RING_AW)) u_ring (
         .clk(clk),
-        .waddr(ring_wptr),
+        .waddr(ring_wptr[RING_AW-1:0]),
         .wdata(ring_wdat),
         .wren(ring_adv),
-        .raddr(ring_raddr), .q(ring_rdata)
+        .raddr(ring_raddr[RING_AW-1:0]), .q(ring_rdata)
     );
 
     // ---- per-region write counters --------------------------------------
@@ -728,6 +843,7 @@ module rf_main
     always_ff @(posedge clk) begin
         if (reset) begin
             pf_wr_cnt <= 0; spr_wr_cnt <= 0; pal_wr_cnt <= 0; line_wr_cnt <= 0;
+            pal_wr_hi <= 0; pal_wr_lo <= 0;
             txt_wr_cnt <= 0; pivot_wr_cnt <= 0;
         end else if (cpu_wr) begin
             // the game clears pivot RAM at boot (32768 word writes of zero,
@@ -737,11 +853,73 @@ module rf_main
             if (sel_pf   && pf_wr_cnt   != 16'hFFFF) pf_wr_cnt   <= pf_wr_cnt   + 16'd1;
             if (sel_spr  && spr_wr_cnt  != 16'hFFFF) spr_wr_cnt  <= spr_wr_cnt  + 16'd1;
             if (sel_pal  && pal_wr_cnt  != 16'hFFFF) pal_wr_cnt  <= pal_wr_cnt  + 16'd1;
+            if (sel_pal  &&  a[14]) pal_wr_hi <= pal_wr_hi + 16'd1;    // free-running,
+            if (sel_pal  && !a[14]) pal_wr_lo <= pal_wr_lo + 16'd1;    // wrap is fine
             if (sel_line && line_wr_cnt != 16'hFFFF) line_wr_cnt <= line_wr_cnt + 16'd1;
             if ((sel_text || sel_char) && txt_wr_cnt != 16'hFFFF)
                 txt_wr_cnt <= txt_wr_cnt + 16'd1;
         end
     end
+
+    // ---- CPU speedometer: the game's own spin loop -----------------------
+    // Darius Gaiden's vblank handler (ROM 0x1A34) raises a flag and then
+    // SPINS on work RAM 0x4022B3 with a 1024-iteration dbne budget until
+    // IRQ3 (ROM 0x1A54) releases it; only then does it run the frame
+    // handler. Every iteration is one read of that byte, so counting those
+    // reads between the vblank IRQ and the IRQ3 acknowledge measures this
+    // core's 68020 against the clock the game actually cares about.
+    //
+    // MEASURED IN MAME: 764 reads, min 761 max 765, identical in attract and
+    // in game. That is the target. A count near 1024 means the spin times
+    // out and the frame handler starts early; a much lower count means the
+    // CPU is slow. Either way the frame's work lands in a different place,
+    // and this game cannot absorb that: on the Zone A entry frame it makes
+    // 39 palette-copy requests into a 32-entry queue and the enqueue routine
+    // DISCARDS the excess in silence (ROM 0x167C: cmpi.w #$20,d2 / bge, no
+    // retry, no error). Which three requests lose is decided by where the
+    // frame boundary falls -- and on hardware the losers are the Zone A
+    // tower blocks, which is why they keep their title-screen gold.
+    //
+    // The row reads in ATTRACT MODE, so the core can be tuned against it
+    // without anyone playing to the level.
+    localparam logic [22:0] SPIN_ADDR = 23'h201159;     // work RAM 0x4022B2/B3
+    wire spin_hit = clkena && (busstate == 2'b10) && sel_ram
+                    && (a[23:1] == SPIN_ADDR);
+    logic [15:0] spin_cnt;
+
+    // Did the tower palette blocks ever reach palette RAM at all? Entries
+    // 0x1164-0x1177 and 0x1021-0x103B are the stale ranges measured on the
+    // board, and the per-frame colour animation does not touch them -- so a
+    // single write here means the copy ran, and zero means the request was
+    // dropped before it ever became a write.
+    wire [12:0] pal_entry = a[14:2];
+    wire twr_a = cpu_wr && sel_pal && (pal_entry >= 13'h1164) && (pal_entry <= 13'h1177);
+    wire twr_b = cpu_wr && sel_pal && (pal_entry >= 13'h1021) && (pal_entry <= 13'h103B);
+    logic [7:0] twr_a_cnt, twr_b_cnt;
+
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            spin_cnt  <= 16'd0;
+            twr_a_cnt <= 8'd0;
+            twr_b_cnt <= 8'd0;
+            cpu_spin  <= 32'd0;
+        end else begin
+            if (vbl_rise)      spin_cnt <= 16'd0;
+            else if (spin_hit) spin_cnt <= spin_cnt + 16'd1;
+            if (ack3) cpu_spin[31:16] <= spin_cnt;
+
+            if (twr_a && twr_a_cnt != 8'hFF) twr_a_cnt <= twr_a_cnt + 8'd1;
+            if (twr_b && twr_b_cnt != 8'hFF) twr_b_cnt <= twr_b_cnt + 8'd1;
+            cpu_spin[15:8] <= twr_a_cnt;
+            cpu_spin[7:0]  <= twr_b_cnt;
+        end
+    end
+
+    // ---- zone injector: the one write it intercepts -----------------------
+    // 0x402312 (and its 128 KB mirror at 0x422312) is word 0x1189 of the RAM
+    // port; a 16-bit store of 0x0001 with both bytes enabled is the init.
+    wire zone_hit = (zone_inj != 2'd0) && cpu_wr && sel_ram && (be == 2'b11)
+                    && (a[16:1] == 16'h1189) && (cpu_dout == 16'h0001);
 
     // ---- fetch monitor ---------------------------------------------------
     always_ff @(posedge clk) begin

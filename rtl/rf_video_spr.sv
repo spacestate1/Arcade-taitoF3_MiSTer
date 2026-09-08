@@ -92,6 +92,36 @@ module rf_video_spr
 (
     input  logic        clk,
     input  logic        reset,
+    // TEARING INSTRUMENT: the CPU's sprite-RAM write strobe. See rf_main.sv.
+    input  logic        spr_wr_stb,
+    output logic [15:0] tear_cnt,       // writes landing DURING the walk
+    output logic [15:0] tear_frames,    // frames in which that happened
+    // SEQUENCE INSTRUMENTS (2026-09-07). Every sprite counter on the page is
+    // PEAK-HELD, and a peak cannot see an alternation: a frame that builds
+    // 6,500 records and one that builds 3,000 leave the same 6,500 behind.
+    // The board's corruption is exactly that -- two renderings alternating on
+    // a static scene -- so these report the last FOUR frames as a sequence,
+    // newest first. Healthy: four similar numbers drifting with the action.
+    // The bug: X Y X Y.
+    output logic [31:0] seq_rec01,      // {records built, frame n  , frame n-1}
+    output logic [31:0] seq_rec23,      // {                frame n-2, frame n-3}
+    output logic [31:0] seq_nspr01,     // {sprites walked, n, n-1}  -- splits the
+    output logic [31:0] seq_nspr23,     // {                n-2, n-3} walk from the fill
+    // {frames where the prepass was STILL BUSY at frame_start -- the direct
+    //  test of "the list was not finished being built" -- ,
+    //  clocks from frame_start to the prepass going idle, in units of 16
+    //  (a frame is ~0xDD00 of them, so a reading near that is a near miss)}
+    output logic [31:0] seq_ovr,
+    // USEDSEQ: a rotate-xor hash of every used_line[par][*] value the draw
+    // published this frame, last four frames newest first. The prepass has
+    // been proved identical frame to frame on a paused glitch (RECSEQ and
+    // NSPRSEQ constant), so the fault is downstream. This says whether the
+    // per-line priority-group flags -- which the MIXER uses to decide what is
+    // in front, and which are double banked by frame parity -- differ between
+    // the two parities. X Y X Y here = the mixer is composing alternate frames
+    // differently from IDENTICAL sprite pixels.
+    output logic [31:0] seq_used01,
+    output logic [31:0] seq_used23,
     input  logic        clk_ram,
 
     // which F3 visarea this game uses; feeds the sprite cull bounds
@@ -120,6 +150,27 @@ module rf_video_spr
     // numbers divide one case from the other.
     output logic [15:0] fetch_max,      // longest single gfx fetch, in clocks
     output logic [15:0] rows_line_max,  // most rows drawn on one line
+    // FETCH SELF-CHECK (rf_spr_gfx_bus): tile rows where a re-fetch from
+    // SDRAM disagreed with the cached copy of the same immutable ROM row.
+    // Any non-zero value is fetch corruption, counted across both buses.
+    output logic [15:0] fetch_bad,
+
+    // ---- DIAGNOSTIC ------------------------------------------------------
+    // The draw's frame_start handler says "in normal running the draw
+    // finished line 255 long ago". On Darius Gaiden's first zone the board
+    // reports 38485 late lines with a longest line of 8656 clocks against a
+    // 3456-clock budget, so that assumption is worth measuring rather than
+    // asserting. This counts the frames in which frame_start arrived with
+    // lines still undrawn -- the draw is then restarted at line 0 with the
+    // record and sprite-list banks swapped under it (rb <= wb below).
+    output logic  [7:0] draw_unfinished,
+    // Cap the sprite rows drawn on one line: 0 = no cap, 1 = 256, 2 = 128,
+    // 3 = 8 (a deliberate stress setting; see cap_rows).
+    // A workload cap is the direct test of whether lateness is what breaks
+    // the picture -- if the colours come right when the line is forced to
+    // fit its budget (at the cost of sprites the cap throws away), the
+    // mechanism is the overrun and not the drawing.
+    input  logic  [1:0] row_cap,
 
     output logic [14:0] spr_addr,       // sprite RAM (walker)
     input  logic [15:0] spr_q,
@@ -175,7 +226,7 @@ module rf_video_spr
 
     // ---- the walker ------------------------------------------------------
     logic        wk_start, wk_busy, wk_done;
-    logic        wk_flip; logic [1:0] wk_extra; logic [4:0] wk_penmask;
+    logic        wk_flip; logic [1:0] wk_extra; logic [5:0] wk_penmask;
     logic        s_valid;
     logic signed [17:0] s_tx, s_ty;
     logic        [8:0]  s_sx, s_sy;
@@ -263,7 +314,60 @@ module rf_video_spr
     // reason behind it: 18 % over EAR's measured 8645-record peak, where
     // 9728 left only 12.5 %. Overflow drops rows from the BOTTOM of the
     // frame and rec_drop counts them on the page, so it fails loudly.
-    localparam int NREC = 10240;        // per bank
+    // MEASURED ON HARDWARE, Zone 2 boss, 2026-09-03: the game builds
+    // **10,836 records** and the store DROPPED 646 of them. A dropped record
+    // is a sprite row that never gets drawn, which is exactly the broken,
+    // dotted wireframe the boss renders with -- the lines come out as
+    // dashes and loose specks.
+    //
+    // 1d49395 CUT this from 12288 to 10240 on peaks of 6517 (Ray Force) and
+    // 8645 (Elevator Action Returns), concluding "36 % spare". Every one of
+    // those numbers was ATTRACT MODE. No dump or capture in this project had
+    // ever contained a boss, so the sizing was derived from a workload that
+    // does not include the heaviest scene in the game. The heavy MAME frame
+    // added the same night (dump/rf_heavy, 344 sprite rows) still only
+    // reaches 2190 records -- a fifth of what the boss needs.
+    //
+    // 13312 was tried first (23 % headroom) and the fitter threw Error
+    // 11802, can't fit -- +173 MLABs is more than tying off the
+    // scandoubler FX gives back. 12288 is +115 and clears the measured
+    // peak by 13 %. If a later zone still overflows, the room has to come
+    // from moving sl_d out of MLABs into M10K the way sl_y went in
+    // 1d49395; there is no slack left to take otherwise.
+    // This is self-verifying: SPR REC : DROP's low half counts dropped
+    // rows, so a later zone that still overflows says so on the page.
+    // Paid for by tying off the
+    // scandoubler FX (Rayforce.sv), which folds the framework's Hq2x block
+    // away; rec and sl_d are the only MLAB consumers in the design and LABs
+    // were at 4187/4191, so the room had to come from somewhere.
+    // ROOT CAUSE OF THE SPRITE CORRUPTION, found 2026-09-08 in the map report:
+    //
+    //   rec_rtl_0:  WIDTH 18,  WIDTHAD 14,  NUMWORDS 16384
+    //
+    // rec is declared [0:1][0:NREC-1] -- 2 x 12288 = 24576 words, needing 15
+    // address bits. Quartus inferred a 16384-word RAM with a 14-bit address:
+    // wb * NREC + f_rd truncated to 14 bits. Bank 0 is words 0..12287; bank 1
+    // should be 12288..24575 but the top third does not exist, so BANK 1's
+    // RECORDS FROM 4096 UP ALIAS ONTO BANK 0's RECORDS 0..8191. Every frame
+    // that builds more than 4096 records has its tail clobber the other
+    // bank's head -- and that threshold is the whole reported behaviour:
+    //   attract        ~3-4k records   clean
+    //   continue screen  4,587         slightly corrupt   (what was captured)
+    //   zone 2 boss     10,836         severe
+    // At the committed NREC = 10240 the threshold was 6144, so the continue
+    // screen was clean there and only the boss showed it: "GitHub has fewer
+    // streaks but not none". Raising NREC to 12288 to stop the boss drops
+    // LOWERED the threshold to 4096: "it got worse when the core expanded".
+    // The simulator models all 24576 words, so every bench passed.
+    //
+    // 24576 real words is +256 MLABs, and an MLAB is a LAB, on a device at
+    // 4185/4191 -- the truncation is WHY it fit. So the store is sized to
+    // exactly the RAM Quartus builds: 2 x 8192 = 16384 = 2^RW, where no
+    // address can alias. The cost is graceful row DROPS on the very heaviest
+    // boss frames (rec_drop counts them), which is far better than rows
+    // ALIASED. Any future NREC must satisfy 2*NREC <= 2^RW, or RW must grow
+    // -- and the map report's NUMWORDS for rec_rtl_0 must be checked.
+    localparam int NREC = 8192;         // per bank -- see above before changing
     localparam int RW   = 14;           // record index width
     localparam int RW1  = RW + 1;       // the prefix sum reaches NREC
     // record: {sidx[9:0], srow_a[3:0], srow_b[3:0]} -- the run's first and
@@ -277,7 +381,15 @@ module rf_video_spr
     logic [15:0] rows_tot;              // records the frame asked for
     logic [15:0] drop_cnt;              // records refused (store full)
     logic        wb, rb;                // write (prepass) / read (draw) bank
-    logic  [4:0] penmask_r;
+    logic  [5:0] penmask_r;                 // 6bpp: pens run 0..63
+    // BISECT SWITCH 2 (2026-09-07): the pen mask was widened 5 -> 6 bits in
+    // uncommitted work. It decides which pen values are opaque, and the
+    // corruption is 95 % same-geometry/different-COLOUR, so a mask that lets
+    // the top pen bit through changes colours without moving anything.
+    //   PENMASK6 = 1  working tree (6-bit mask)
+    //   PENMASK6 = 0  committed    (top bit forced off)
+    localparam bit PENMASK6 = 1'b1;
+    wire   [5:0] penmask_e = PENMASK6 ? penmask_r : {1'b0, penmask_r[4:0]};
     logic        flip_r;
     // Published continuously rather than registered again: two always_ff
     // blocks assigning it is a multiple-driver error in Quartus (Verilator
@@ -358,7 +470,101 @@ module rf_video_spr
     wire               dr_vis = (dr_dx >= VX0) && (dr_dx <= VX1) && (dr_dx != dr_dxn);
     wire  [3:0]        dr_src = dr_xx[3:0] ^ {4{dr_fx}};
     wire  [5:0]        dr_pen6= dr_pix[6*dr_src +: 6];
-    wire  [4:0]        dr_pen = dr_pen6[4:0] & penmask_r;
+
+    // ---- skip source pixels that provably do not write -------------------
+    // The draw costs ONE CLOCK PER SOURCE PIXEL, sixteen a row, whether or
+    // not the pixel writes anything -- and that, not fetch latency, is what
+    // breaks a heavy line. Measured on the board: 784 rows on the worst
+    // line, 12,544 source pixels, 14,236 clocks = 1.135 clocks a pixel
+    // against a 3,456-clock budget.
+    //
+    // The rows on those lines are ZOOMED OUT, not 1:1 -- 100 of the 114 rows
+    // on frame 3000's worst line have scale_x 0x40, i.e. four source pixels
+    // collapse onto one destination pixel, so THREE IN FOUR write nothing
+    // and still cost a clock. (Two more heavy frames measure the same: 105
+    // of 114 at 0x3D, and the rest spread below 0x100.) So the lever is not
+    // a wider write port -- which would need a multi-write line buffer, the
+    // exact inference trap that produced the sprite splits, and would only
+    // align at 1:1 zoom anyway. It is to STOP VISITING pixels that cannot
+    // write.
+    //
+    // Each clock, look four source positions ahead and jump to the first one
+    // that writes. Still exactly one write per clock and the same set of
+    // written pixels -- a skipped position is one where the pen is
+    // transparent, the destination is off-screen, or zoom has already
+    // mapped a later source pixel onto the same destination (dr_vis's
+    // dr_dx != dr_dxn, which is what makes the LAST source pixel of a
+    // zoom group the one that draws). Worst case (1:1 and fully opaque) it
+    // degenerates to today's one pixel a clock; on the lines that actually
+    // overrun it is close to 4x.
+    //
+    // This replaces the transparent-quad skip, which was a strict subset:
+    // "none of the next four writes" is covered by finding no writer.
+    wire  [8:0] sx1 = dr_sx;
+    wire [10:0] sx2 = {sx1, 1'b0};
+    wire [10:0] sx3 = {2'd0, sx1} + sx2;
+    wire [10:0] sx4 = {sx1, 2'b00};
+
+    logic signed [24:0] la  [0:4];      // dr_dx8 at each lookahead position
+    logic signed [24:0] dxk [0:4];      // and its destination pixel
+    always_comb begin
+        la[0] = dr_dx8;
+        la[1] = dr_dx8 + $signed({16'd0, sx1});
+        la[2] = dr_dx8 + $signed({14'd0, sx2});
+        la[3] = dr_dx8 + $signed({14'd0, sx3});
+        la[4] = dr_dx8 + $signed({14'd0, sx4});
+        for (int k = 0; k <= 4; k++) dxk[k] = la[k] >>> 8;
+    end
+
+    logic  [3:0] lk_src  [0:3];
+    logic  [5:0] lk_pen  [0:3];
+    logic  [8:0] lk_ix   [0:3];
+    logic  [3:0] lk_wr;                 // this position writes
+    always_comb begin
+        for (int k = 0; k < 4; k++) begin
+            automatic logic [4:0] xx = dr_xx + 5'(k);
+            lk_src[k] = xx[3:0] ^ {4{dr_fx}};
+            lk_pen[k] = dr_pix[6*lk_src[k] +: 6] & penmask_e;
+            lk_ix[k]  = dxk[k][8:0] - 9'd46;
+            lk_wr[k]  = (xx < 5'd16)
+                        && (dxk[k] >= VX0) && (dxk[k] <= VX1)
+                        && (dxk[k] != dxk[k+1])
+                        && (lk_pen[k] != 6'd0);
+        end
+    end
+
+    // first writer among the four, and how many source pixels that consumes
+    // ---- BISECT SWITCH (2026-09-07) --------------------------------------
+    // The lookahead skip is one of three FUNCTIONAL changes that live only in
+    // the working tree and not on origin/master. The player reports the
+    // committed build has FEWER streaks but not none, so these three amplify
+    // a bug that already exists in the committed code. This switch degenerates
+    // the skip to the committed behaviour -- consider source pixel 0 only,
+    // advance exactly one -- so the amplifier can be tested without reverting
+    // NREC, the pen mask or the instruments.
+    //   LK_SKIP = 1  working tree: skip up to four transparent source pixels
+    //   LK_SKIP = 0  committed:    one source pixel per clock
+    // It is the prime suspect because it is the only one of the three that
+    // moves dr_dx8, the x-position accumulator -- and the corruption is
+    // pixels landing at the wrong x ALONG a scanline.
+    // VERDICT 2026-09-07: the skip is NOT the cause. Build 07154217 ran with
+    // it OFF and the player reported the target glitches UNCHANGED -- while
+    // other screen tears CAME BACK, because the worst sprite line went
+    // 9,951 -> 15,615 clocks (+56 %) with every transparent source pixel
+    // visited again. So the skip earns its place and is back ON; suspect #1
+    // of three is eliminated. See SPRITE-CORRUPTION.md.
+    localparam bit LK_SKIP = 1'b1;
+
+    wire [3:0] lk_wr_e  = LK_SKIP ? lk_wr : {3'b000, lk_wr[0]};
+    wire [1:0] lk_first = lk_wr_e[0] ? 2'd0 : lk_wr_e[1] ? 2'd1 :
+                          lk_wr_e[2] ? 2'd2 : 2'd3;
+    wire       lk_any   = |lk_wr_e;
+    wire [2:0] lk_adv   = LK_SKIP ? (lk_any ? (3'(lk_first) + 3'd1) : 3'd4)
+                                  : 3'd1;
+    wire [10:0] lk_dadv = (lk_adv == 3'd1) ? {2'd0, sx1} :
+                          (lk_adv == 3'd2) ? sx2 :
+                          (lk_adv == 3'd3) ? sx3 : sx4;
+    wire  [5:0]        dr_pen = dr_pen6 & penmask_e;
     wire  [8:0]        dr_ix  = dr_dx[8:0] - 9'd46;
 
     // record at `fc` -- the next to issue; the line's run ends at `fe`. Two
@@ -419,7 +625,7 @@ module rf_video_spr
     always_comb begin
         q_any = 1'b0;
         for (int k = 0; k < 16; k++)
-            if ((q_pix[q_cs][6*k +: 5] & penmask_r) != 5'd0) q_any = 1'b1;
+            if ((q_pix[q_cs][6*k +: 6] & penmask_e) != 6'd0) q_any = 1'b1;
     end
     logic              fc_ok;            // fc's two-deep lookup has settled
 
@@ -427,12 +633,15 @@ module rf_video_spr
     logic [1:0][14:0] gfx_code;
     logic [1:0][3:0]  gfx_row;
     logic [1:0]       gfx_req, gfx_valid, gfx_busy;
+    logic [15:0]      gfx_bad [0:1];
+    wire  [16:0]      gfx_bad_sum = {1'b0, gfx_bad[0]} + {1'b0, gfx_bad[1]};
+    assign fetch_bad = gfx_bad_sum[16] ? 16'hFFFF : gfx_bad_sum[15:0];
     logic [1:0][95:0] gfx_pix;
 
     rf_spr_gfx_bus gfx_a (
         .clk_cpu(clk), .reset(reset),
         .code(gfx_code[0]), .row(gfx_row[0]), .req(gfx_req[0]),
-        .pix(gfx_pix[0]), .valid(gfx_valid[0]), .busy(gfx_busy[0]),
+        .pix(gfx_pix[0]), .valid(gfx_valid[0]), .busy(gfx_busy[0]), .fetch_bad(gfx_bad[0]),
         .clk_ram(clk_ram),
         .ch_lo_addr(ch_a_lo_addr), .ch_lo_dout(ch_a_lo_dout), .ch_lo_req(ch_a_lo_req), .ch_lo_ready(ch_a_lo_ready),
         .ch_hi_addr(ch_a_hi_addr), .ch_hi_dout(ch_a_hi_dout), .ch_hi_req(ch_a_hi_req), .ch_hi_ready(ch_a_hi_ready)
@@ -441,7 +650,7 @@ module rf_video_spr
     rf_spr_gfx_bus gfx_b (
         .clk_cpu(clk), .reset(reset),
         .code(gfx_code[1]), .row(gfx_row[1]), .req(gfx_req[1]),
-        .pix(gfx_pix[1]), .valid(gfx_valid[1]), .busy(gfx_busy[1]),
+        .pix(gfx_pix[1]), .valid(gfx_valid[1]), .busy(gfx_busy[1]), .fetch_bad(gfx_bad[1]),
         .clk_ram(clk_ram),
         .ch_lo_addr(ch_b_lo_addr), .ch_lo_dout(ch_b_lo_dout), .ch_lo_req(ch_b_lo_req), .ch_lo_ready(ch_b_lo_ready),
         .ch_hi_addr(ch_b_hi_addr), .ch_hi_dout(ch_b_hi_dout), .ch_hi_req(ch_b_hi_req), .ch_hi_ready(ch_b_hi_ready)
@@ -610,6 +819,85 @@ module rf_video_spr
               ex_dy8 <= $signed(sly_ty) + (flip_r ? 25'sd0 : 25'sd255) \
                       + $signed({16'd0, ({sly_sy, 4'd0} - {4'd0, sly_sy})}); end
 
+    // ---- SEQUENCE INSTRUMENTS -------------------------------------------
+    logic [15:0] rec_seq  [0:3];
+    logic [15:0] used_seq [0:3];
+    logic [15:0] used_acc;                // this frame's running hash
+    logic [15:0] nspr_seq [0:3];
+    logic [15:0] ovr_cnt;
+    logic [19:0] pp_clk;                // clocks since frame_start
+    logic [15:0] pp_end;                // pp_clk >> 4 when the prepass went idle
+    logic        pp_seen;               // ... captured once per frame
+    logic        pb_q;                  // prepass_busy, one clock late
+    assign seq_rec01  = {rec_seq[0],  rec_seq[1]};
+    assign seq_rec23  = {rec_seq[2],  rec_seq[3]};
+    assign seq_nspr01 = {nspr_seq[0], nspr_seq[1]};
+    assign seq_nspr23 = {nspr_seq[2], nspr_seq[3]};
+    // Top byte: {6'b0, rb, par} -- WHICH record bank the draw reads, and the
+    // frame parity, at the instant the page samples this row. Rows 17 and 25
+    // sample 8 frames apart (even), so this reads the same parity FOLDSEQ's
+    // first column does. With the reset parity swapped (below), one build says
+    // whether the bad half follows the BANK or the frame parity.
+    assign seq_ovr    = {6'd0, rb, par, ovr_cnt[7:0], pp_end};
+    assign seq_used01 = {used_seq[0], used_seq[1]};
+    assign seq_used23 = {used_seq[2], used_seq[3]};
+    always_ff @(posedge clk) begin
+        pb_q <= prepass_busy;
+        if (reset) begin
+            for (int i = 0; i < 4; i++) begin rec_seq[i] <= 16'd0; nspr_seq[i] <= 16'd0; end
+            ovr_cnt <= 16'd0; pp_clk <= 20'd0; pp_end <= 16'd0; pp_seen <= 1'b0;
+            for (int i = 0; i < 4; i++) used_seq[i] <= 16'd0;
+            used_acc <= 16'd0;
+        end else if (frame_start) begin
+            // rows_tot and nspr are reset by the prepass FSM in this same
+            // cycle (non-blocking), so what is read here is the frame just
+            // ended -- complete or not. A short frame shows as a small number.
+            rec_seq[0]  <= rows_tot;      rec_seq[1]  <= rec_seq[0];
+            rec_seq[2]  <= rec_seq[1];    rec_seq[3]  <= rec_seq[2];
+            nspr_seq[0] <= {5'd0, nspr};  nspr_seq[1] <= nspr_seq[0];
+            nspr_seq[2] <= nspr_seq[1];   nspr_seq[3] <= nspr_seq[2];
+            if (prepass_busy && ovr_cnt != 16'hFFFF) ovr_cnt <= ovr_cnt + 16'd1;
+            used_seq[0] <= used_acc;      used_seq[1] <= used_seq[0];
+            used_seq[2] <= used_seq[1];   used_seq[3] <= used_seq[2];
+            used_acc    <= 16'd0;
+            pp_clk  <= 20'd0;
+            pp_seen <= 1'b0;
+        end else begin
+            if (pp_clk != 20'hFFFFF) pp_clk <= pp_clk + 20'd1;
+            if (used_pub) used_acc <= {used_acc[14:0], used_acc[15]} ^ {12'd0, used_val};
+            if (pb_q && !prepass_busy && !pp_seen) begin
+                pp_end  <= pp_clk[19:4];
+                pp_seen <= 1'b1;
+            end
+        end
+    end
+
+    // ---- TEARING INSTRUMENT ---------------------------------------------
+    // The walk reads sprite RAM through the B port while the CPU writes the A
+    // port, with no snapshot between them. Every write that lands while
+    // wk_busy is high can put a torn entry into the list: part of the old
+    // frame's sprite, part of the new one. tear_cnt counts those writes,
+    // tear_frames counts the frames that had at least one. Both saturate.
+    // If these read zero on the board the CPU and the walk never overlap and
+    // this whole theory is dead; if they are large, the list the draw works
+    // from is not a coherent snapshot of anything.
+    logic tear_seen;
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            tear_cnt <= 16'd0; tear_frames <= 16'd0; tear_seen <= 1'b0;
+        end else begin
+            if (frame_start) begin
+                if (tear_seen && tear_frames != 16'hFFFF)
+                    tear_frames <= tear_frames + 16'd1;
+                tear_seen <= 1'b0;
+            end
+            if (wk_busy && spr_wr_stb) begin
+                tear_seen <= 1'b1;
+                if (tear_cnt != 16'hFFFF) tear_cnt <= tear_cnt + 16'd1;
+            end
+        end
+    end
+
     always_ff @(posedge clk) begin
         wk_start <= 1'b0;
         bt_we    <= 1'b0;
@@ -617,7 +905,7 @@ module rf_video_spr
             pst <= P_IDLE;
             wb  <= 1'b0; rb <= 1'b1;
             nspr <= 11'd0;
-            flip_r <= 1'b0; penmask_r <= 5'h0F;
+            flip_r <= 1'b0; penmask_r <= 6'h0F;
         end else if (frame_start) begin
             // publish the bank just built, start filling the other
             rb <= wb;
@@ -747,6 +1035,13 @@ module rf_video_spr
     // current record is drawn (or there is none), take the consume slot as
     // soon as its pixels are in. Done: nothing drawing, nothing in flight,
     // no records left.
+    // DIAGNOSTIC: rows a line may draw before the rest are abandoned.
+    // 3 is a HARD cap, well under any real line, so the abandon path is
+    // exercised in simulation -- at 128 and 256 it never triggers on any
+    // dumped frame (the worst is 27 rows) and would ship untested.
+    wire [15:0] cap_rows = (row_cap == 2'd1) ? 16'd256 :
+                           (row_cap == 2'd2) ? 16'd128 : 16'd8;
+
     typedef enum logic [2:0] { D_IDLE, D_CLR, D_LEAD0, D_RUN, D_DONE } dst_t;
     dst_t dst;
     assign line_busy = (dst != D_IDLE && dst != D_DONE);
@@ -767,10 +1062,13 @@ module rf_video_spr
     logic [15:0] rows_line, rows_line_pk, rows_line_pk_q;
     logic  [1:0] gfx_busy_d;
 
+    logic       used_pub;               // a used_line entry was published
+    logic [3:0] used_val;               // ... with this value
     always_ff @(posedge clk) begin
         gfx_req <= 2'b00;
         wr_en   <= 1'b0;
         fb_req  <= 1'b0;
+        used_pub <= 1'b0;
         fc_ok   <= 1'b1;                 // cleared below whenever fc changes
 
         // capture completions (bus i serves slot i)
@@ -788,6 +1086,7 @@ module rf_video_spr
         if (reset) begin
             dst <= D_IDLE; q_busy <= 2'b00; q_ready <= 2'b00; cur <= 1'b0;
             active <= 1'b0; nxt <= 9'd0; par <= 1'b0; ir_open <= 1'b0;
+            draw_unfinished <= 8'd0;
             dbank <= 1'b0; fb_line <= 8'd0; fb_used <= 4'd0;
             f_cnt[0] <= 0; f_cnt[1] <= 0; f_max <= 0; f_max_q <= 0;
             rows_line <= 0; rows_line_pk <= 0; rows_line_pk_q <= 0;
@@ -798,6 +1097,11 @@ module rf_video_spr
         end else if (frame_start) begin
             par <= ~par;                // every entry of the frame just drawn
                                         // now reads as empty
+            // MEASURED, not assumed: did the draw actually get through all
+            // 256 lines before the banks swapped? Saturating, so a board
+            // left running does not wrap the evidence away.
+            if (active && nxt < 9'd256 && draw_unfinished != 8'hFF)
+                draw_unfinished <= draw_unfinished + 8'd1;
             // the buckets just swapped: restart at line 0. In normal running
             // the draw finished line 255 long ago; a fetch still in flight
             // (a frame_start mid-line, e.g. the bench's priming pass) is
@@ -841,6 +1145,7 @@ module rf_video_spr
             D_LEAD0: begin
                 if (bt_q[RW-1:0] == bt_q[2*RW-1:RW]) begin
                     used_line[par][dr_line] <= dr_used;         // empty line
+                    used_pub <= 1'b1; used_val <= dr_used;
                     span_lo[dbank] <= cur_lo;                  // nothing written
                     span_hi[dbank] <= cur_hi;
                     dst <= D_DONE;
@@ -854,9 +1159,22 @@ module rf_video_spr
             end
 
             D_RUN: begin
+                // ---- DIAGNOSTIC workload cap ------------------------------
+                // Abandon the rest of this line's rows once it has drawn
+                // `cap_rows` of them. Ending the run (fc <= fe) hands the
+                // line to the ordinary drain-and-finish branch below, so
+                // nothing else in the FSM has to know the cap exists. The
+                // sprites past the cap are simply not drawn -- the point is
+                // to see whether the COLOURS come right when the line is
+                // forced inside its budget.
+                if (row_cap != 2'd0 && rows_line >= cap_rows && fc != fe) begin
+                    fc      <= fe;
+                    fc_ok   <= 1'b0;
+                    ir_open <= 1'b0;
+                end
                 // ---- issue the next row of the record at fc into the free
                 // slot; fc advances on the run's last row only
-                if (fc != fe && fc_ok && !q_busy[q_is] && !gfx_busy[q_is]) begin
+                else if (fc != fe && fc_ok && !q_busy[q_is] && !gfx_busy[q_is]) begin
                     gfx_code[q_is] <= sd_code;
                     gfx_row[q_is]  <= is_row;
                     gfx_req[q_is]  <= 1'b1;
@@ -896,22 +1214,31 @@ module rf_video_spr
                         cur  <= q_any;
                     end else if (!q_busy[q_cs] && fc == fe) begin
                         used_line[par][dr_line] <= dr_used;
+                        used_pub <= 1'b1; used_val <= dr_used;
                         span_lo[dbank] <= cur_lo;
                         span_hi[dbank] <= cur_hi;
                         dst <= D_DONE;
                     end
                     // else wait for the oldest fetch to land
                 end else begin
-                    if (dr_vis && dr_pen != 5'd0) begin
+                    // write the first of the next four source pixels that
+                    // writes at all, and step past it; if none of the four
+                    // writes, step over all four. See the lookahead above.
+                    if (lk_any) begin
                         wr_en   <= 1'b1;
-                        wr_addr <= {dbank, dr_ix};
-                        wr_data <= {3'd0, dr_base | {8'd0, dr_pen}};
+                        wr_addr <= {dbank, lk_ix[lk_first]};
+                        wr_data <= {3'd0, dr_base | {7'd0, lk_pen[lk_first]}};
                         dr_used <= dr_used | (4'd1 << dr_pri);
-                        if (dr_ix < cur_lo) cur_lo <= dr_ix;
-                        if (dr_ix > cur_hi) cur_hi <= dr_ix;
+                        if (lk_ix[lk_first] < cur_lo) cur_lo <= lk_ix[lk_first];
+                        if (lk_ix[lk_first] > cur_hi) cur_hi <= lk_ix[lk_first];
                     end
-                    dr_dx8 <= dr_dx8 + $signed({16'd0, dr_sx});
-                    dr_xx  <= dr_xx + 5'd1;
+                    // dr_xx never overshoots 16: a writing position is only
+                    // considered while dr_xx+k < 16, so lk_adv <= 16-dr_xx.
+                    // The no-writer case steps 4 and is clamped, since the
+                    // row is finished either way and dr_dx8 is reloaded.
+                    dr_xx  <= (5'({1'b0, dr_xx}) + 5'({2'd0, lk_adv}) > 5'd16)
+                              ? 5'd16 : dr_xx + 5'({2'd0, lk_adv});
+                    dr_dx8 <= dr_dx8 + $signed({14'd0, lk_dadv});
                 end
             end
 

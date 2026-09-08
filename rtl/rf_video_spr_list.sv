@@ -43,7 +43,14 @@ module rf_video_spr_list
     // frame-global engine state, valid from `done` until the next `start`
     output logic        o_flip,
     output logic  [1:0] o_extra,        // extra colour planes (0-3)
-    output logic  [4:0] o_penmask,      // (extra<<4)|0x0F
+    // 6 BITS, not 5. MAME's pen mask is (extra_planes << 4) | 0x0F with
+    // extra_planes 0..3, so it reaches 0x3F -- and F3 sprite graphics are
+    // 6bpp, 64 pens. At 5 bits the expression below silently lost its top
+    // bit: extra=2 produced 0x0F instead of 0x2F and extra=3 produced 0x1F
+    // instead of 0x3F, masking away the two upper colour planes. Every
+    // frame dumped in this tree uses extra 0 or 1, which fit, so no bench
+    // covers it and no shipped game has shown it.
+    output logic  [5:0] o_penmask,      // (extra<<4)|0x0F, up to 0x3F
 
     // sprite RAM read port (B side of the CPU's sprite BRAM)
     output logic [14:0] spr_addr,
@@ -89,7 +96,7 @@ module rf_video_spr_list
 
     assign o_flip    = flip;
     assign o_extra   = extra;
-    assign o_penmask = {extra, 4'h0} | 5'h0F;
+    assign o_penmask = {extra, 4'h0} | 6'h0F;
 
     // ---- the 8 words of the current entry --------------------------------
     logic [15:0] w [0:7];

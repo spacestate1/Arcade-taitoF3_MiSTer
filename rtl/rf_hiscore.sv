@@ -52,7 +52,7 @@ module rf_hiscore
     input  logic        clk,
     input  logic        reset,
 
-    input  logic  [1:0] game_id,        // 0 = Ray Force family, 1 = EAR
+    input  logic  [5:0] game_id,        // 0 = Ray Force family, 1 = EAR
     input  logic        run,            // CPU out of reset and running
     input  logic        vbl_rise,       // poll cadence while waiting
 
@@ -74,15 +74,31 @@ module rf_hiscore
     output logic        hs_we,
     input  logic [15:0] hs_q,           // registered raddr + registered q
 
-    output logic        save_ready     // guards seen: worth requesting a save
+    output logic        save_ready,    // guards seen: worth requesting a save
+    // Diagnostics for the self-test page. The restore path fails somewhere
+    // downstream of save_ready and two builds were spent guessing at it, so
+    // the two signals that actually distinguish the cases are brought out:
+    // sh_ok says the shadow guards matched (the .nvm is for this game and
+    // intact), injected says the table was actually written into game RAM.
+    output logic        sh_ok_o,
+    output logic        injected_o
 );
 
     // ---- per-game table --------------------------------------------------
     logic [16:0] r0_off, r1_off;
     logic  [7:0] r0_len, r1_len;
     logic  [7:0] gv [0:3];              // guard values, in walk order
+    // ONLY these games have a table here. Every other id used to fall into
+    // the Ray Force branch below and poll Ray Force's RAM offsets in a game
+    // that has nothing there -- and had those four bytes ever read 41 00 01
+    // 00 by coincidence, the inject would have written 68 bytes of Ray
+    // Force's high-score table into an unrelated game's work RAM. Ids 6 and
+    // 7 (Gunlock, Ray Force Japan) genuinely ARE the Ray Force table: same
+    // game, same map, one program ROM apart.
+    wire has_table = (game_id == 6'd0) || (game_id == 6'd1) ||
+                     (game_id == 6'd6) || (game_id == 6'd7);
     always_comb begin
-        if (game_id == 2'd1) begin      // Elevator Action Returns
+        if (game_id == 6'd1) begin      // Elevator Action Returns
             r0_off = 17'h0ce3a; r0_len = 8'h7c;
             r1_off = 17'h0ce3c; r1_len = 8'h01;
             gv[0] = 8'h00; gv[1] = 8'h01; gv[2] = 8'hc3; gv[3] = 8'hc3;
@@ -143,6 +159,7 @@ module rf_hiscore
     typedef enum logic [2:0] { H_IDLE, H_SETTLE, H_GUARD, H_INJ, H_CAP, H_DONE } hst_t;
     hst_t hst;
     logic       injected;               // the table has been written at least once
+    assign      injected_o = injected;
     logic       poll_done;              // done: no (further) poll will help
 
     // ONE INJECT IS NOT ENOUGH, measured on hardware 2026-08-31. The guards
@@ -163,6 +180,7 @@ module rf_hiscore
     logic [9:0] inj_left;
     logic       capturing;
     logic       sh_ok;                  // shadow guards match, so far
+    assign      sh_ok_o = sh_ok;
     logic [7:0] idx;
     logic  [1:0] gph;
     logic  [7:0] settle;
@@ -199,11 +217,11 @@ module rf_hiscore
 
             case (hst)
                 H_IDLE: begin
-                    if (ioctl_upload && !upload_d && run) begin
+                    if (ioctl_upload && !upload_d && run && has_table) begin
                         capturing <= 1'b1; idx <= 8'd0; cap_lo <= 16'd0;
                         hs_pause <= 1'b1; settle <= 8'd64; rd_ph <= 2'd0;
                         hst <= H_SETTLE;
-                    end else if (run && !poll_done && vbl_rise) begin
+                    end else if (run && has_table && !poll_done && vbl_rise) begin
                         capturing <= 1'b0; gph <= 2'd0; sh_ok <= 1'b1;
                         sh_idx <= guard_idx(2'd0);
                         hs_pause <= 1'b1; settle <= 8'd64; rd_ph <= 2'd0;

@@ -88,7 +88,37 @@ module rf_video_mix
     // ---- output ------------------------------------------------------------
     output logic        out_valid,
     output logic  [8:0] out_x,
-    output logic [23:0] out_rgb
+    output logic [23:0] out_rgb,
+
+    // the screen line being composed -- only the pixel probe below wants it,
+    // the mixer itself works one line at a time and never needs to know which
+    input  logic  [7:0] line_y,
+
+    // ---- DIAGNOSTIC: what the mixer USED on a wrong pixel ----------------
+    // Darius Gaiden's big Zone A tower sprites come out red. Everything
+    // upstream has been cleared by measurement: the sprite list is exact,
+    // the draw finishes, and the sprite framebuffer hands this region of the
+    // screen back byte-for-byte as it was written -- so the palette INDEX
+    // arriving here is right and the RGB leaving is not.
+    //
+    // The wrong pixels have a signature: G and B both come out 0x03, which
+    // is this game's black and, not coincidentally, the GGBB word of palette
+    // entry 0. The red channel meanwhile still varies with the tower's
+    // shading. This latches the mixer's own inputs for such a pixel:
+    //
+    //   {x[8:0], y[7:0], src_pal[12:0], src_blend==8, dst_blend==0}
+    //
+    // The COORDINATE is the point: an earlier packing reported the output
+    // green/blue instead, and a reading could not be pinned to a pixel, so
+    // it could not be compared against MAME. With (x,y) the board's own
+    // screenshot supplies the output colour and a MAME dump supplies the
+    // correct index and colour for the same pixel. One reading then splits
+    // three ways: src_pal matches MAME's and the pixel is opaque but wrong
+    // -> the palette read; src_pal differs -> the pen/graphics upstream;
+    // not opaque -> the blend weights from the line-RAM decode. The two
+    // flag bits compress the weights to the only question that matters
+    // here, since MAME renders this scene 100 % opaque.
+    output logic [31:0] dbg_pix
 );
 
     localparam int H_START = 46;
@@ -375,6 +405,8 @@ module rf_video_mix
     // per pixel, one per clock, data one clock behind the address.
     logic [15:0] p_src, p_dst;
     logic  [3:0] p_sb, p_db, q_sb, q_db;
+    logic [15:0] q_src;                 // DIAGNOSTIC copies, see dbg_pix
+    logic  [7:0] q_y;
     logic  [8:0] p_x, q_x;
     logic        v9_1, v9_2, v9_3, v9_4, v9_5, v9_6;
     logic  [7:0] sr, sg, sb, dr, dg, db;
@@ -405,7 +437,8 @@ module rf_video_mix
 
         if (v9_2) sr <= pal_q[7:0];
         if (v9_3) begin sg <= pal_q[15:8]; sb <= pal_q[7:0]; end
-        if (v9_4) begin dr <= pal_q[7:0]; q_sb <= p_sb; q_db <= p_db; q_x <= p_x; end
+        if (v9_4) begin dr <= pal_q[7:0]; q_sb <= p_sb; q_db <= p_db; q_x <= p_x;
+                        q_src <= p_src; q_y <= line_y; end
         if (v9_5) begin dg <= pal_q[15:8]; db <= pal_q[7:0]; end
     end
 
@@ -419,11 +452,19 @@ module rf_video_mix
         chan = (acc > 13'd255) ? 8'hFF : acc[7:0];
     endfunction
 
+    wire [7:0] o_r = chan(sr, q_sb, dr, q_db);
+    wire [7:0] o_g = chan(sg, q_sb, dg, q_db);
+    wire [7:0] o_b = chan(sb, q_sb, db, q_db);
+
     always_ff @(posedge clk) begin
         out_valid <= v9_6;
         if (v9_6) begin
             out_x   <= q_x;
-            out_rgb <= {chan(sr, q_sb, dr, q_db), chan(sg, q_sb, dg, q_db), chan(sb, q_sb, db, q_db)};
+            out_rgb <= {o_r, o_g, o_b};
+            // DIAGNOSTIC: a sprite-sourced pixel (sprite palette is 0x1000
+            // and up) whose green and blue have both collapsed to 0x03.
+            if (q_src[12])
+                dbg_pix <= {q_x, q_y, q_src[12:0], (q_sb == 4'd8), (q_db == 4'd0)};
         end
     end
 

@@ -36,10 +36,16 @@ module rf_selftest #(
     input  logic        dl_active,
     input  logic        dl_seen,
     // per-game expectations (0 = not measured for this game; see below)
-    // which game the MRA says this is (Rayforce.sv "GAME CONFIG" bits 7:6).
+    // which game the MRA says this is (Rayforce.sv "GAME CONFIG": the id is
+    // {bit 5, bits 7:6}, so the field grew to three bits without changing
+    // what any MRA written before it meant -- bit 5 is 0 in all of them).
     // Row 0 of the page is the game's name, not the core's history: the
     // titles live after the visible rows in rf_selftest_page.
-    input  logic  [1:0] game_id,
+    input  logic  [5:0] game_id,
+    // High-score restore diagnostics, carried in the spare top bits of the
+    // TRAP row: a 320x224 page is exactly 28 rows and has no 29th to give.
+    input  logic        hs_sh_ok,      // shadow guards matched
+    input  logic        hs_injected,   // the table was written into RAM
 
     input  logic [31:0] exp_bytes,
     input  logic [31:0] exp_sum,
@@ -61,6 +67,8 @@ module rf_selftest #(
     input  logic [15:0] irq3_rate,
     input  logic        irq_rate_valid,
     input  logic [15:0] pal_wr_cnt,
+    input  logic [15:0] pal_wr_hi,     // DIAGNOSTIC: palette writes at and
+    input  logic [15:0] pal_wr_lo,     //   above entry 0x1000, and below
     input  logic [15:0] pf_wr_cnt,
     input  logic [15:0] spr_wr_cnt,
     input  logic [15:0] line_wr_cnt,
@@ -70,7 +78,19 @@ module rf_selftest #(
     input  logic [31:0] vid_fetch,     // dbg_fetch
     input  logic [31:0] vid_max,       // dbg_max
     input  logic [31:0] vid_nz,        // dbg_nz
-    input  logic [31:0] vid_sfetch,    // dbg_sfetch {longest fetch, rows/line}
+    // SEQUENCE INSTRUMENTS, rows 17-20 (see rf_video_spr.sv)
+    input  logic [31:0] seq_rec01, seq_rec23, seq_nspr01, seq_nspr23,
+    input  logic        _unused_seq,
+    input  logic [31:0] vid_sfetch,    // dbg_sfetch {frames the draw never
+                                       // finished, longest fetch (8-bit,
+                                       // saturating), rows on the worst line}
+    // DIAGNOSTIC, and REPURPOSED PER BUILD -- the row label in
+    // tools/make_selftest_page.py is the authority on what it means today.
+    // It has carried the sprite-framebuffer folds and the mixer pixel probe;
+    // this build feeds it rf_main's cpu_spin, so the row reads
+    // SPIN:TWRA:TWRB = {vblank spin-loop reads (real hardware: 764), tower
+    // palette block A writes, tower palette block B writes}.
+    input  logic [31:0] vid_sprpix,
     input  logic [31:0] vid_spr,       // dbg_spr
     input  logic [31:0] vid_rec,       // dbg_rec
     input  logic [31:0] snd_diag1,     // {pivot RAM writes, sound CPU PC[15:0]}
@@ -183,7 +203,8 @@ module rf_selftest #(
                          (((exp_hash == 32'd0) ||                            \
                            (wr_hash == exp_hash)) ? ST_PASS : ST_FAIL)       \
                      : (wr_count != 32'h0) ? ST_BUSY : ST_WAIT; end          \
-        5'd9: begin VAL = {7'd0, trap_oor, last_pc[23:0]};                  \
+        5'd9: begin VAL = {5'd0, hs_injected, hs_sh_ok,                      \
+                              trap_oor, last_pc[23:0]};                      \
                  STA = trap_oor ? ST_FAIL :                                  \
                        cpu_running ? ST_PASS : ST_WAIT; end                  \
         5'd10: begin VAL = vid_rec;                                          \
@@ -196,25 +217,30 @@ module rf_selftest #(
         5'd13: begin VAL = {irq2_rate, irq2_cnt};                            \
                  STA = !irq_rate_valid ? ST_WAIT :                           \
                        (irq2_rate == EXP_RATE) ? ST_PASS : ST_FAIL; end      \
-        5'd14: begin VAL = snd_diag3;   /* SMP BIST:OVR:DR */               \
-                 STA = !smp_bist_done ? ST_WAIT :                            \
-                       (smp_bist_pass && snd_diag3[15:0] == 16'd0)           \
-                           ? ST_PASS : ST_FAIL; end                          \
-        5'd16: begin VAL = {16'd0, pal_wr_cnt};                              \
+        /* DIAGNOSTIC BUILD: this row was SMP BIST:OVR:DR, which is stable  \
+           and passing and has nothing to do with the sprite colours. It is  \
+           BORROWED, not deleted -- restore it (and the label in            \
+           tools/make_selftest_page.py) once the sprite bug is closed. The   \
+           row reports rather than judges: there is no expectation to check  \
+           against in RTL, the comparison is against the model off-board. */ \
+        5'd14: begin VAL = vid_sprpix;  /* STALELN:AGE:CNT*/                  \
+                 STA = ST_PASS; end                                          \
+        5'd16: begin VAL = {pal_wr_hi, pal_wr_lo};                           \
                  STA = (pal_wr_cnt  != 16'd0) ? ST_PASS :                    \
                        cpu_running ? ST_BUSY : ST_WAIT; end                  \
-        5'd17: begin VAL = {16'd0, pf_wr_cnt};                               \
-                 STA = (pf_wr_cnt   != 16'd0) ? ST_PASS :                    \
-                       cpu_running ? ST_BUSY : ST_WAIT; end                  \
-        5'd18: begin VAL = {16'd0, spr_wr_cnt};                              \
-                 STA = (spr_wr_cnt  != 16'd0) ? ST_PASS :                    \
-                       cpu_running ? ST_BUSY : ST_WAIT; end                  \
-        5'd19: begin VAL = {16'd0, line_wr_cnt};                             \
-                 STA = (line_wr_cnt != 16'd0) ? ST_PASS :                    \
-                       cpu_running ? ST_BUSY : ST_WAIT; end                  \
-        5'd20: begin VAL = {16'd0, txt_wr_cnt};                              \
-                 STA = (txt_wr_cnt  != 16'd0) ? ST_PASS :                    \
-                       cpu_running ? ST_BUSY : ST_WAIT; end                  \
+        /* DRAW VS MIXER -- the last four frames, newest first. On a paused   \
+           glitch the prepass is proved identical frame to frame (RECSEQ and  \
+           NSPRSEQ constant, 2026-09-07), so the fault is downstream of the   \
+           record store. FOLDSEQ = rf_spr_fb's wr_fold, the sum of every      \
+           sprite pixel the DRAW handed over that frame: X Y X Y here means   \
+           the draw's output alternates. USEDSEQ = a hash of the per-line     \
+           priority flags the draw published, which the MIXER composes with:  \
+           X Y X Y here with FOLDSEQ constant means identical sprite pixels   \
+           are being composed differently. No pass criterion: measurement. */ \
+        5'd17: begin VAL = seq_rec01;  STA = !cpu_running ? ST_WAIT : ST_PASS; end \
+        5'd18: begin VAL = seq_rec23;  STA = !cpu_running ? ST_WAIT : ST_PASS; end \
+        5'd19: begin VAL = seq_nspr01; STA = !cpu_running ? ST_WAIT : ST_PASS; end \
+        5'd20: begin VAL = seq_nspr23; STA = !cpu_running ? ST_WAIT : ST_PASS; end \
         5'd26: VAL = build_hex;                                              \
         /* SPRFETCH:ROWMAX -- {longest single sprite gfx fetch in clocks,   \
            most rows drawn on one line}. This row replaced MIX : BUILD,      \
@@ -232,9 +258,15 @@ module rf_selftest #(
         5'd23: begin VAL = vid_fetch;   /* FETCH : PIX NZ  (sticky, above) */ \
                  STA = !cpu_running ? ST_WAIT :                              \
                        fetch_seen   ? ST_PASS : ST_BUSY; end                 \
-        5'd25: begin VAL = vid_nz;      /* TILE NZ:PF:PAL  (sticky, above) */ \
-                 STA = !cpu_running ? ST_WAIT :                              \
-                       nz_seen      ? ST_PASS : ST_BUSY; end                 \
+        /* PREPASS OVR:END -- {frames where the prepass was STILL BUSY at   \
+           frame_start, i.e. the sprite list was published before it was      \
+           finished being built -- the direct test of the leading theory --,  \
+           clocks from frame_start to the prepass going idle, in units of 16  \
+           (a frame is ~DD00 of them; a value near that is a near miss)}.     \
+           OVR must be 0. Borrowed from SPRTEAR, which did its job. */        \
+        5'd25: begin VAL = vid_nz;   /* {0,rb,par, overruns[7:0], end} */     \
+                 STA = !cpu_running          ? ST_WAIT :                     \
+                       (vid_nz[23:16] != 0)  ? ST_FAIL : ST_PASS; end        \
         5'd24: begin VAL = vid_max;     /* MAXFETCH:BUILD  (sticky, above) */ \
                  STA = !cpu_running ? ST_WAIT :                              \
                        max_over     ? ST_FAIL :                              \
@@ -291,7 +323,11 @@ module rf_selftest #(
         u_col_q <= u_col;
         u_row_q <= u_row;
     end
-    wire [4:0] b_row_eff = (u_row == 0) ? 5'(ST_ROWS + game_id) : 5'(u_row);
+    // Any id without a title of its own falls to the last one, so the game-id
+    // field covers the whole F3 library (35 parent sets) while the page ROM
+    // carries only the titles actually written.
+    wire [5:0] title_ix  = (game_id >= 6'(ST_TITLES - 1)) ? 6'(ST_TITLES - 1) : game_id;
+    wire [5:0] b_row_eff = (u_row == 0) ? 6'(ST_ROWS + title_ix) : 6'(u_row);
     assign pg_b_addr = 11'(b_row_eff * ST_COLS + u_col);
 
     wire       u_in_val = ST_VAL_ROWS[u_row_q] &&
@@ -321,7 +357,7 @@ module rf_selftest #(
     wire [2:0] gcol  = xn[2:0];
     wire [2:0] grow  = yv[2:0];
 
-    wire [4:0] a_row_eff = (row_n == 0) ? 5'(ST_ROWS + game_id) : 5'(row_n);
+    wire [5:0] a_row_eff = (row_n == 0) ? 6'(ST_ROWS + title_ix) : 6'(row_n);
     assign pg_a_addr = 11'(a_row_eff * ST_COLS + col_n);
     always_comb row_a = row_n;
 

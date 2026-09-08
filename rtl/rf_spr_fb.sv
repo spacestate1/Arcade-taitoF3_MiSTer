@@ -68,6 +68,58 @@ module rf_spr_fb
     output logic [15:0] rd_color,
     output logic [15:0] miss,           // lines composed without their sprites
 
+    // ---- DIAGNOSTIC: the same pixels, either side of the DDR3 round trip -
+    // Darius Gaiden renders its sprites in the wrong COLOURS on hardware
+    // while every playfield and the text layer are pixel-exact, and the
+    // whole video pipe is 74240/74240 identical to the model in simulation
+    // on the very frame the board gets wrong. So the fault is in something
+    // simulation does not reproduce, and the DDR3 round trip is the only
+    // such thing in the sprite path.
+    //
+    // These two folds are the same quantity measured before and after it:
+    // wr_fold sums every pixel the draw hands over (lb_q, as the writer
+    // streams a finished line out), rd_fold sums every pixel the mixer gets
+    // back (rd_color). Both are order-independent sums over the identical
+    // set of pixels, so they are directly comparable to each other AND to
+    // the model's sprite framebuffer for a matched frame:
+    //
+    //   wr != rd                  the round trip corrupts -- DDR3 path
+    //   wr == rd  != model        the draw itself is wrong -- record/list
+    //   wr == rd  == model        both fine; the fault is in the mixer or
+    //                             the palette read after this point
+    //
+    // The write side is delayed by one frame before publication so the two
+    // halves describe the SAME drawn frame (see wr_prev below); without that
+    // they would differ on any moving picture and the row would only be
+    // readable on a paused screen. Comparing the halves to EACH OTHER needs
+    // no reference at all -- it is a self-check that works in attract.
+    output logic [15:0] wr_fold,
+    output logic [15:0] rd_fold,
+    // PER-LINE verdict. The frame totals above proved the read side returns
+    // pixels that were never written, and that it only happens on visarea f3
+    // (232 lines, 24..255) -- 587/587 samples are perfect on f3_224a, and the
+    // same game flips to 100 % by changing one MRA config bit. A frame total
+    // cannot say WHICH lines, so this compares the two folds line by line:
+    // the writer's fold for each line is kept (indexed by bank and line) and
+    // checked against the reader's fold for the same line of the same bank.
+    output logic  [7:0] bad_first,      // first line of the frame that differed
+    output logic  [7:0] bad_last,       // and the last
+    output logic [15:0] bad_count,      // how many lines differed
+    // Times a refill was DEFERRED because the mixer was still displaying the
+    // line in that slot -- i.e. how often the collision fixed below would
+    // have corrupted a line. Non-zero on the board is the proof it was real;
+    // zero would say the fix addresses something that never happens here.
+    output logic  [7:0] defer_cnt,
+    // Times a line's read UNDER-DELIVERED: the beats stopped arriving before
+    // the line was full and the whole line had to be refetched from zero
+    // (the R_WAIT -> R_DRAIN path). rf_spr_fb's own notes attribute that to
+    // the f2sdram bridge capping a burst; rf_ddr_arb's preempt_cnt is the
+    // competing explanation. Neither has ever been counted on hardware, and
+    // every existing instrument sits on the sprite side of the shared port,
+    // which is the side that wins arbitration -- so they all read clean
+    // while the screen is visibly wrong. Saturating.
+    output logic [15:0] short_cnt,
+
     // ---- DDR3, through rf_ddr_arb ---------------------------------------
     output logic  [7:0] ddr_burstcnt,
     output logic [28:0] ddr_addr,
@@ -116,6 +168,19 @@ module rf_spr_fb
     logic  [1:0] w_pix;             // which of the four
     logic [63:0] w_acc;
     logic [63:0] w_sum;                 // running XOR of the line's words
+    // ---- STALE-LINE DETECTOR (2026-09-04) ----------------------------------
+    // The per-line CRC proves a line's CONTENT round-tripped, but a line the
+    // draw never rewrote this frame still carries LAST frame's pixels and
+    // last frame's matching CRC, so it verifies and is shown -- one frame
+    // behind everything around it. That is the "two layers, offset, at the
+    // top of the frame" the player describes, and no counter here could see
+    // it: `miss` fires only when a line is ABSENT. So the CRC word gives up
+    // its low 8 bits to a frame number stamped when the line is written, and
+    // the reader checks it against the frame it expects.
+    logic  [7:0] fnum;                  // frames since reset
+    logic  [7:0] fnum_w;                // the frame this line was drawn in
+    always_ff @(posedge clk)
+        if (reset) fnum <= 8'd0; else if (frame_start) fnum <= fnum + 8'd1;
     logic  [7:0] w_line;
     logic        w_bank;
     logic        w_crc;                 // the CRC word is on the bus
@@ -184,6 +249,64 @@ module rf_spr_fb
     end
     assign rd_color = rd_hit_q ? lb_rq[16*rd_lane_q +: 16] : 16'd0;
 
+    // ---- the two diagnostic folds (see the port note) --------------------
+    // One sample per x position: the mixer can hold rd_x for more than a
+    // clock, and counting a pixel twice would make the two sides disagree
+    // for a reason that is not the round trip.
+    // The two sides are a frame apart and the published pair must NOT be:
+    // the draw fills bank par during frame N while the mixer is showing the
+    // bank drawn during N-1, so rd_acc always trails wr_acc by one frame.
+    // Publishing them as they stand would make the halves differ on any
+    // MOVING picture for a reason that is not the round trip -- which would
+    // restrict the whole diagnostic to a paused screen. Delaying the write
+    // side by one frame lines them up, so the row is readable in attract.
+    // ---- per-line folds: REMOVED 2026-09-03 --------------------------
+    // The per-line compare (a 512x16 M10K plus the wl/rl accumulators) did
+    // its job: it proved on hardware that the DDR3 round trip returns the
+    // sprite lines exactly as written wherever the picture was wrong, and
+    // that the earlier 'bad line' readings were the instrument's own frame
+    // boundary artifact. Its M10K went to the tile-row cache and the record
+    // store (RESOURCES.md). The ports stay so nothing upstream rewires;
+    // they read as zero, which is also what the corrected instrument read.
+    // Carried out on the old fold ports (the plumbing to the page already
+    // exists): bad_first = last stale line, bad_last = how many frames old
+    // it was, bad_count = stale lines seen since reset (saturating).
+    logic  [7:0] st_line, st_age, st_prev;
+    logic [15:0] st_cnt;                // reset alongside the read FSM below
+    assign bad_first = st_line;
+    assign bad_last  = st_age;
+    assign bad_count = st_cnt;
+
+    logic [15:0] wr_acc, rd_acc, wr_prev;
+    logic  [8:0] rd_x_q;
+    logic        defer_q;
+    wire         fill_want    = !nf[8] && (nf < {1'b0, rd_line} + NRB);
+    wire         fill_collide = buf_ok[nf[2:0]] && (buf_line[nf[2:0]] == rd_line);
+    wire         fill_defer   = (rst == R_IDLE) && fill_want && fill_collide;
+    always_ff @(posedge clk) begin
+        defer_q <= fill_defer;
+        if (reset) defer_cnt <= 8'd0;
+        else if (fill_defer && !defer_q && defer_cnt != 8'hFF)
+            defer_cnt <= defer_cnt + 8'd1;
+    end
+    always_ff @(posedge clk) begin
+        rd_x_q <= rd_x;
+        if (reset) begin
+            wr_acc <= 16'd0; rd_acc <= 16'd0; wr_prev <= 16'd0;
+            wr_fold <= 16'd0; rd_fold <= 16'd0;
+        end else if (frame_start) begin
+            wr_fold <= wr_prev;  wr_prev <= wr_acc;
+            rd_fold <= rd_acc;
+            wr_acc  <= 16'd0;    rd_acc  <= 16'd0;
+        end else begin
+            // write side: lb_q is valid in W_CAP, the same cycle the packer
+            // shifts it in, so tap exactly where the packer taps
+            if (wst == W_CAP)      wr_acc <= wr_acc + lb_q;
+            if (rd_x != rd_x_q)    rd_acc <= rd_acc + rd_color;
+        end
+    end
+
+
     logic        lb_we;
     logic  [9:0] lb_wa;
     logic [63:0] lb_wd;
@@ -216,8 +339,23 @@ module rf_spr_fb
         rd_line_q <= rd_line;
         if (reset) primed <= 1'b0;
         else if (frame_start && nf[8]) primed <= 1'b1;
+        // miss is a per-FRAME count, so it clears at frame_start -- but
+        // hit_seen must NOT. The mixer is mid-line when frame_start arrives
+        // (it composes line L during raster L-1, and frame_start is raster
+        // 260), so clearing the evidence here erases the hits that line had
+        // already seen and the verdict at its end scores it a miss. That is
+        // EXACTLY ONE SPURIOUS MISS PER FRAME, which is what the board has
+        // been reporting: 28 late lines per self-test page pass, and a page
+        // is 28 rows at one row per frame. It stayed exactly 28 across four
+        // builds whose worst line ranged from 14,676 clocks down to 9,616 --
+        // a load-dependent fault cannot be that constant.
+        //
+        // This is the same mistake SPRPIX made and the same fix: a quantity
+        // the mixer produces belongs to the rd_line wrap, not to frame_start.
+        // Letting hit_seen carry across the boundary lets the straddling
+        // line be judged on the evidence it actually had.
         if (reset || frame_start) begin
-            miss <= 16'd0; hit_seen <= 1'b0;
+            miss <= 16'd0;
         end else if (rd_line != rd_line_q) begin
             if (primed && !hit_seen && !rd_hit && miss != 16'hFFFF)
                 miss <= miss + 16'd1;
@@ -311,7 +449,7 @@ module rf_spr_fb
     wire   wr_want      = (wst == W_ISSUE) || (wst == W_CRC);
     assign ddr_rd       = rd_want && (rw_tog  || !wr_want);
     assign ddr_we       = wr_want && (!rw_tog || !rd_want);
-    assign ddr_din      = w_crc ? w_sum : w_acc;
+    assign ddr_din      = w_crc ? {w_sum[63:8], fnum_w} : w_acc;
     // reads resume from what has actually landed, not from what was asked
     // read commands use the PLANNED cursor (r_word): they pipeline ahead of
     // the returning beats, which land at r_got independently
@@ -329,9 +467,11 @@ module rf_spr_fb
         if (reset) begin
             rw_tog <= 1'b1;
             wst <= W_IDLE; rst <= R_IDLE;
+            st_line <= 8'd0; st_age <= 8'd0; st_cnt <= 16'd0; st_prev <= 8'd0;
             r_fill <= 3'd0; buf_ok <= '0; nf <= 9'd0;
             for (int b = 0; b < NRB; b++) buf_line[b] <= 8'd0;
             w_word <= 0; w_pix <= 0; r_word <= 0; r_got <= 8'd0; r_to <= 12'd0;
+            short_cnt <= 16'd0;
         end else begin
             if (frame_start) begin
                 buf_ok <= '0;           // last frame's lines are stale
@@ -342,7 +482,7 @@ module rf_spr_fb
             // ---- write FSM
             case (wst)
                 W_IDLE: if (wr_req) begin
-                    w_line <= wr_line; w_bank <= par;
+                    w_line <= wr_line; w_bank <= par; fnum_w <= fnum;
                     w_word <= 0; w_pix <= 0; w_sum <= 64'd0; w_crc <= 1'b0;
                     wst <= W_RD;
                 end
@@ -373,7 +513,22 @@ module rf_spr_fb
             // with the line after the one it is on
             // Walk forward: keep the window [rd_line, rd_line+NRB) filled.
             case (rst)
-                R_IDLE: if (!nf[8] && (nf < {1'b0, rd_line} + NRB)) begin
+                // A slot being refilled must not read as valid. This was
+                // written to explain Darius Gaiden's wrong sprite colours --
+                // the theory being that the prefetcher wraps NRB lines round
+                // onto the line the mixer is displaying and the mixer then
+                // composes a mix of two lines. THE BOARD SAYS IT DOES NOT:
+                // defer_cnt reads 0 on build 01232731, and the window
+                // condition proves why -- refilling slot L%NRB happens at
+                // nf = L+NRB, which the condition only allows once
+                // rd_line > L, i.e. after the mixer has passed L. Kept
+                // anyway: clearing buf_ok while a slot is being rewritten is
+                // the invariant this module should have had, it costs
+                // nothing, and defer_cnt is the evidence either way. It is
+                // NOT the fix for the colours -- that is still open.
+                R_IDLE: if (!nf[8] && (nf < {1'b0, rd_line} + NRB) &&
+                           !(buf_ok[nf[2:0]] && (buf_line[nf[2:0]] == rd_line))) begin
+                    buf_ok[nf[2:0]] <= 1'b0;   // invalid while it is rewritten
                     r_fill <= nf[2:0];
                     r_word <= 0; r_got <= 8'd0; r_to <= 12'd0; r_idle <= 10'd0;
                     r_sum <= 64'd0; r_try <= 2'd0;
@@ -412,6 +567,7 @@ module rf_spr_fb
                     // fired on every line and the retry loop ate the frame.
                     end else if (r_idle == 10'd1000) begin
                         rst <= R_DRAIN;         // under-delivery: start over
+                        if (short_cnt != 16'hFFFF) short_cnt <= short_cnt + 16'd1;
                     end
                 end
                 // fetch the line's stored checksum (a single read)
@@ -429,7 +585,24 @@ module rf_spr_fb
                     r_to   <= r_to + 12'd1;
                     r_idle <= r_idle + 10'd1;
                     if (ddr_dout_ready) begin
-                        if (ddr_dout == r_sum) begin
+                        if (ddr_dout[63:8] == r_sum[63:8]) begin
+                            // content proven -- now: is it THIS frame's?
+                            // A fixed expected tag (fnum or fnum-1) flags a
+                            // whole population of CORRECT lines -- the draw
+                            // and the readout straddle frame_start differently
+                            // for different lines, so tag-vs-fnum is not a
+                            // constant. What IS invariant: a frame drawn in one
+                            // pass has ONE tag on every line. "Two layers,
+                            // offset" is exactly a run of lines whose tag
+                            // differs from its neighbours'. So flag a tag that
+                            // differs from the previous verified line's, except
+                            // at line 0 where a new frame legitimately starts.
+                            if (nf[7:0] != 8'd0 && ddr_dout[7:0] != st_prev) begin
+                                st_line <= nf[7:0];
+                                st_age  <= st_prev - ddr_dout[7:0];   // how many frames behind its neighbour
+                                if (st_cnt != 16'hFFFF) st_cnt <= st_cnt + 16'd1;
+                            end
+                            st_prev <= ddr_dout[7:0];
                             buf_line[r_fill] <= nf[7:0];
                             buf_ok[r_fill]   <= 1'b1;
                             nf               <= nf + 9'd1;
