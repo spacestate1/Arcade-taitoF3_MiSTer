@@ -31,40 +31,65 @@ PAGE = [
     ("-- CPU AND MEMORY MAP ---------------", 0, 0),
     ("PIVOT WR:SND PC",                     1, 1),   # {pivot RAM writes (must stay 0), sound CPU PC}
     ("WRITE HASH",                          1, 1),
-    ("TRAP : MAIN PC",                     1, 1),   # {out-of-range fetch flag, main 68020 PC}
+    ("HS:TRAP:MAIN PC",                    1, 1),   # {injected, sh_ok, out-of-range fetch flag, main 68020 PC}
     ("SPR REC : DROP",                      1, 1),   # {records built last prepass, rows dropped at the cap}
     ("-- INTERRUPTS -----------------------", 0, 0),
     ("SND ES WR : RUN",                     1, 1),   # {sound CPU ES5505 writes, running}
     ("IRQ2 ACK/64FRM",                      1, 1),
-    ("SMP BIST:OVR:DR",                     1, 1),   # {sample-region BIST sum[15:0], sampler overruns, queue drops}
-    ("-- VIDEO RAM WRITES -----------------", 0, 0),
-    ("PALETTE",                             1, 1),
-    ("PLAYFIELD",                           1, 1),
-    ("SPRITE",                              1, 1),
-    ("LINE RAM",                            1, 1),
-    ("TEXT AND CHAR",                       1, 1),
+    # DIAGNOSTIC BUILD: borrowed from SMP BIST:OVR:DR (sample-region BIST,
+    # sampler overruns, queue drops) -- restore that label and rf_selftest's
+    # row 14 once the Darius Gaiden sprite-colour bug is closed.
+    ("STALELN:AGE:CNT",                     1, 1),   # {last STALE sprite line, frames old, stale lines since reset} -- rf_spr_fb
+    ("-- DRAW VS MIXER, LAST 4 FRAMES -----", 0, 0),
+    # DIAGNOSTIC BUILD: this row's value had 16'd0 in its upper half; it now
+    # carries rf_main's palette-write split at entry 0x1000 (pal_wr_hi is at
+    # and above it, pal_wr_lo below). That is the "did the CPU ever ISSUE the
+    # upper-half burst" half of the Darius Gaiden tower-colour question, and
+    # without it the counters are built and then thrown away by synthesis.
+    # The row's PASS test is unchanged (still pal_wr_cnt != 0). Restore the
+    # "PALETTE" label, and rf_selftest's row 16, once that bug is closed.
+    ("PAL HI : LO",                         1, 1),
+    ("FOLDSEQ N  :N-1",                     1, 1),
+    ("FOLDSEQ N-2:N-3",                     1, 1),
+    ("USEDSEQ N  :N-1",                     1, 1),
+    ("USEDSEQ N-2:N-3",                     1, 1),
     ("-- VIDEO PIPELINE / FRAME -----------", 0, 0),
     ("SPRFETCH:ROWMAX",                     1, 1),   # {longest single sprite gfx fetch in clocks, most rows drawn on one line}
     ("FETCH : PIX NZ",                      1, 1),
     ("MAXFETCH:BUILD",                      1, 1),
-    ("TILE NZ:PF:PAL",                      1, 1),
+    # DIAGNOSTIC BUILD: borrowed from TILE NZ:PF:PAL (a bring-up liveness
+    # check that a working pipe already implies). {rotation preemptions of the
+    # sprite framebuffer on the shared DDRAM port, sprite line reads that came
+    # back short}. Every other instrument on this page sits on the sprite side
+    # of that port -- the side that wins arbitration -- which is why they all
+    # read clean while the screen is visibly wrong under load. Restore the
+    # "TILE NZ:PF:PAL" label and rf_selftest's row 25 once that is closed.
+    ("BK:PAR:OVR:END",                     1, 1),
     ("BUILD",                               1, 0),
     ("SPRLINE : LATE",                      1, 1),   # {longest sprite line draw, lines the mixer started before the draw finished them}
 ]
 
 assert len(PAGE) == ROWS, f"{len(PAGE)} rows, expected {ROWS}"
 
-# One title per game id (Rayforce.sv "GAME CONFIG", bits 7:6). The core runs a
+# One title per game id (Rayforce.sv "GAME CONFIG", {bit 5, bits 7:6}). The core runs a
 # Taito F3 BOARD, so the page should say which game is in it rather than
 # whichever game the core was first written for. Appended after the visible
 # rows; rf_selftest reads row 0 from here instead of from the page itself.
 NAMES = [
-    "RAY FORCE / GUNLOCK   TAITO F3 CORE",
+    "RAY FORCE (US)        TAITO F3 CORE",
     "ELEVATOR ACTION RETURNS  TAITO F3",
-    "TAITO F3 CORE  (GAME 2)",
-    "TAITO F3 CORE  (GAME 3)",
+    "BUBBLE BOBBLE II      TAITO F3 CORE",
+    "BUBBLE MEMORIES       TAITO F3 CORE",
+    "DARIUS GAIDEN         TAITO F3 CORE",
+    "PUZZLE BOBBLE 2       TAITO F3 CORE",
+    "GUNLOCK               TAITO F3 CORE",
+    "RAY FORCE (JAPAN)     TAITO F3 CORE",
+    # LAST ENTRY IS THE FALLBACK. rf_selftest clamps any game id without a
+    # title of its own to this row, so the id field covers all 35 F3 parent
+    # sets while the page ROM only carries the titles actually written.
+    "TAITO F3 CORE",
 ]
-assert len(NAMES) == 4
+assert len(NAMES) >= 2
 for n in NAMES:
     assert len(n) <= COLS, f"title too long: {n!r}"
 
@@ -113,6 +138,7 @@ def main():
     out.append("package rf_selftest_pkg;")
     out.append(f"    localparam int ST_COLS  = {COLS};")
     out.append(f"    localparam int ST_ROWS  = {ROWS};")
+    out.append(f"    localparam int ST_TITLES = {len(NAMES)};")
     out.append(f"    localparam int ST_VAL_C0 = {VAL_C0};")
     out.append(f"    localparam int ST_VAL_W  = {VAL_W};")
     out.append(f"    localparam int ST_ST_C0  = {ST_C0};")

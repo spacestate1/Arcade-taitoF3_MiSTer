@@ -15,9 +15,13 @@ tools/rf_write_compare.py and the alignment note in HANDOFF.md.
 import argparse
 import sys
 
+import os
+
 import paramiko
 
-HOST = "172.17.1.164"
+# The board is on DHCP and has moved before; RF_HOST overrides, as rf_deploy
+# does. The router publishes it as MiSTer.lan.
+HOST = os.environ.get("RF_HOST", "MiSTer.lan")
 
 
 def main():
