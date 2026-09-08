@@ -440,12 +440,8 @@ wire       flip_screen = status[14];
 wire       pause_osd   = status[15];
 wire [2:0] cpu_speed   = status[20:18];
 
-// The self-test page is drawn in raster order and must stay flat, so
-// rotation and the vertical aspect are both forced off while it shows.
-wire       eff_no_rotate = no_rotate | selftest_on;
-
-assign VIDEO_ARX = (!ar) ? (eff_no_rotate ? 12'd4 : 12'd3) : (ar - 1'd1);
-assign VIDEO_ARY = (!ar) ? (eff_no_rotate ? 12'd3 : 12'd4) : 12'd0;
+// eff_no_rotate, VIDEO_ARX and VIDEO_ARY are assigned after cfg_game is
+// decoded, because the orientation is now per game. See there.
 
 // Pause: the J1 "Pause" button (joystick bit 13, either player) toggles a
 // hold on the main CPU's clock enable. Video keeps running (the last frame
@@ -842,6 +838,48 @@ wire       cfg_extend = ~game_cfg[2];
 // from a new index whose absence reads as zero. Same reasoning as the extend
 // bit's inverted sense: a shipped MRA must never change meaning.
 wire [5:0] cfg_game = {game_cfg[10:8], game_cfg[5], game_cfg[7:6]};
+
+// ---- ORIENTATION, per game -------------------------------------------
+// MiSTer's screen_rotate writes every visible pixel into a DDR3 framebuffer
+// and the scaler reads it back a frame later. That frame is the ONLY input
+// latency in this core -- rf_main's joystick path is combinational, straight
+// from j0/j1 into the CPU's input port with no register in between -- so
+// rotating a game that does not need it costs a whole frame for nothing.
+//
+// Ray Force is vertical and the OSD's Rotate defaults to CW for it, which is
+// right for the core's main title and WRONG for the twelve horizontal games
+// now running: they were paying that frame, and being displayed sideways at
+// a 3:4 aspect into the bargain. A player reported exactly that as input lag
+// on Darius Gaiden (2026-09-08), whose MRA says <rotation>horizontal</rotation>.
+//
+// Orientation is a property of the game, like visarea and extend, so it is
+// decoded here from cfg_game rather than left to a setting the player has to
+// know to change. The values come from the MRAs themselves, which all carry
+// a <rotation> tag; every id below was read out of one. Unlisted ids default
+// to vertical, so nothing that ran before this changes behaviour.
+//
+// This does not take the Rotate option away from anyone: it only forces the
+// no-rotate case, which is the one a horizontal game always wants.
+logic cfg_horizontal;
+always_comb begin
+    case (cfg_game)
+        //  1 elvactr   2 bublbob2  3 bubblem   4 dariusg   5 pbobble2
+        //  8 arkretrn  9 pbobble3 10 pbobble4 13 cleopatr 14 twinqix
+        // 15 recalh   16 qtheater 17 popnpop  19 dariusgx
+        6'd1,  6'd2,  6'd3,  6'd4,  6'd5,  6'd8,  6'd9,
+        6'd10, 6'd13, 6'd14, 6'd15, 6'd16, 6'd17, 6'd19: cfg_horizontal = 1'b1;
+        // 0 rayforce  6 gunlock  7 rayforcej 11 gseeker
+        // 12 spcinv95 18 gekiridn  -- and anything without an id yet
+        default: cfg_horizontal = 1'b0;
+    endcase
+end
+
+// The self-test page is drawn in raster order and must stay flat, so
+// rotation and the vertical aspect are both forced off while it shows.
+wire       eff_no_rotate = no_rotate | selftest_on | cfg_horizontal;
+
+assign VIDEO_ARX = (!ar) ? (eff_no_rotate ? 12'd4 : 12'd3) : (ar - 1'd1);
+assign VIDEO_ARY = (!ar) ? (eff_no_rotate ? 12'd3 : 12'd4) : 12'd0;
 
 wire [1:0] cfg_uart    = game_cfg[15:14];
 wire [1:0] uart_mode   = (cfg_uart != 2'd0) ? cfg_uart : status[5:4];
