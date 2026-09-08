@@ -1081,15 +1081,25 @@ wire cfg_pal12 = cfg_pal12_id | game_cfg[13];   // index 2 bit [5]
 // map, unchanged to the byte, so every MRA written before today still
 // means what it meant. Profile 1 is the 36 MB layout the big sets need.
 //
-//   region       profile 0 (18.5 MB)      profile 1 (36 MB)
+//   region       profile 0 (22.5 MB)      profile 1 (42 MB)
 //   maincpu      0x0000000   2 MB         0x0000000   2 MB
 //   audiocpu     0x0200000 512 KB         0x0200000   3 MB
 //   sprites      0x0280000   4 MB         0x0500000  13 MB
-//   sprites_hi   0x0680000   2 MB         0x1200000   2 MB
-//   tilemap      0x0880000   4 MB         0x1400000   6 MB
-//   tilemap_hi   0x0C80000   2 MB         0x1A00000   2 MB
-//   ensoniq      0x0E80000   8 MB         0x1C00000   8 MB
-//                          = 22.5 MB                = 36 MB
+//   sprites_hi   0x0680000   2 MB         0x1200000   7 MB
+//   tilemap      0x0880000   4 MB         0x1900000   6 MB
+//   tilemap_hi   0x0C80000   2 MB         0x1F00000   3 MB
+//   ensoniq      0x0E80000   8 MB         0x2200000   8 MB
+//                          = 22.5 MB                = 42 MB
+//
+// PROFILE 1 WAS 36 MB AND TOO SMALL, corrected 2026-09-08 before it was ever
+// used. The sizing came from a script whose regex was `ROM_LOAD\w*\(`, and
+// MAME writes a plain load as `ROM_LOAD       (` with alignment spaces before
+// the paren -- so EVERY sprites_hi and tilemap_hi in the library measured as
+// zero. Those two regions are exactly the ones only plain ROM_LOAD fills.
+// Kaiser Knuckle needs 6.5 MB of sprites_hi and 3 MB of tilemap_hi against
+// the 2 MB each it was given. No game had used profile 1 yet, so nothing
+// shipped wrong -- but the numbers were also published to F3-LIBRARY.md,
+// where they contradicted correct figures that were already there.
 //
 // KNOWN LIMIT: profile 1 gives audiocpu 3 MB for Kirameki Star Road, but
 // rf_sound_main maps the sound 68000's C00000-C7FFFF linearly onto a 1 MB
@@ -1102,11 +1112,11 @@ wire cfg_pal12 = cfg_pal12_id | game_cfg[13];   // index 2 bit [5]
 wire cfg_map = game_cfg[12];
 
 // Bases are WORD addresses ([26:1]), i.e. half the byte address above.
-wire [26:1] map_tile_lo = cfg_map ? 26'hA00000 : 26'h440000;  // tilemap
-wire [26:1] map_tile_hi = cfg_map ? 26'hD00000 : 26'h640000;  // tilemap_hi
-wire [26:1] map_sgfx_lo = cfg_map ? 26'h280000 : 26'h140000;  // sprites
-wire [26:1] map_sgfx_hi = cfg_map ? 26'h900000 : 26'h340000;  // sprites_hi
-wire [26:1] map_smp     = cfg_map ? 26'hE00000 : 26'h740000;  // ensoniq
+wire [26:1] map_tile_lo = cfg_map ? 26'h0C80000 : 26'h440000;  // tilemap
+wire [26:1] map_tile_hi = cfg_map ? 26'h0F80000 : 26'h640000;  // tilemap_hi
+wire [26:1] map_sgfx_lo = cfg_map ? 26'h0280000 : 26'h140000;  // sprites
+wire [26:1] map_sgfx_hi = cfg_map ? 26'h0900000 : 26'h340000;  // sprites_hi
+wire [26:1] map_smp     = cfg_map ? 26'h1100000 : 26'h740000;  // ensoniq
 
 // ---------------------------  NVRAM  ---------------------------------
 //

@@ -34,17 +34,30 @@ layout, unchanged, and profile 1 is a 36 MB layout with a 13 MB sprites
 region. **Profile 1 fits ALL 100 F3 sets, parents and clones**, so nothing in
 the library is blocked on ROM space any more.
 
-**The sizes below were re-measured on 2026-09-08 from REAL ROM bytes.** The
-figures this file used to carry came from MAME's *declared* region sizes and
-overstated several sets badly -- the largest set in the library is Kirameki
-Star Road at **31 MB**, not the 36-40 MB the declared sizes imply. Two
-consequences worth knowing:
+**The sizes below are REAL ROM bytes, re-measured 2026-09-08 and then
+CORRECTED the same day.** The first re-measurement was wrong and briefly
+replaced correct figures in this file with smaller ones: its regex was
+`ROM_LOAD\w*\(`, and MAME writes a plain load as `ROM_LOAD       (` with
+alignment spaces before the paren, so every `sprites_hi` and `tilemap_hi` in
+the library measured as ZERO -- those two regions being the ones only plain
+`ROM_LOAD` fills. Kaiser Knuckle really is 36 MB and Kirameki Star Road
+really is 40 MB, as this file said before. The lesson is the obvious one: a
+measurement that makes a known problem look smaller deserves more suspicion
+than one that makes it look bigger.
 
-- `sprites` is the region that overflows for THIRTEEN of the fourteen sets
-  that missed profile 0. The 4 MB slot was the bottleneck, not capacity.
-- **Land Maker now fits profile 0**, because ensoniq grew 4 MB -> 8 MB for
-  Puzzle Bobble 3/4 and its 6 MB of samples fit that. It is listed as not
-  fitting further down; that row is stale.
+What survives from that pass, re-checked with the fixed regex:
+
+- `sprites` is the region that overflows for thirteen of the fourteen sets
+  that miss profile 0, so profile 1 spends its growth there (13 MB).
+- **Land Maker fits profile 0**, because ensoniq grew 4 MB -> 8 MB for Puzzle
+  Bobble 3/4 and its 6 MB of samples fit. Its real total is 20.5 MB, not the
+  16.5 MB the broken script reported.
+- **Puzzle Bobble 3/4 never needed a bigger map at all** -- only the 3-bit
+  otisbank width. Both now run.
+
+Profile 1 is **42 MB**, not the 36 MB first chosen: `sprites_hi` needs 6.5 MB
+(Kaiser Knuckle) and `tilemap_hi` 3 MB, where the broken measurement had
+allotted 2 MB each. Corrected before profile 1 was ever used by a game.
 
 The SDRAM itself was MEASURED at **>= 64 MB** (aliasing probe, 2026-09-08:
 1 MB of 0xFF at byte 32 MB left the program ROM intact, where the same write
