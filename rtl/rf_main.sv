@@ -233,19 +233,39 @@ module rf_main
     // game is untouched until someone selects otherwise.
     logic [7:0] thr_acc;
     logic       thr_go;
-    wire  [7:0] thr_inc = (cpu_speed == 3'd1) ? 8'd240 :   // 94 %
-                          (cpu_speed == 3'd2) ? 8'd224 :   // 88 %
-                          (cpu_speed == 3'd3) ? 8'd208 :   // 81 %
-                          (cpu_speed == 3'd4) ? 8'd192 :   // 75 %
-                          (cpu_speed == 3'd5) ? 8'd160 :   // 62 %
-                          (cpu_speed == 3'd6) ? 8'd128 :   // 50 %
-                                                8'd96;     // 37 %
+    // MEASURED 2026-09-08: Darius Gaiden's vblank spin loop runs 600 times a
+    // frame here where real hardware runs it 764 -- this CPU does 79 % of the
+    // work the real one does in the same window. The enable rate is not the
+    // reason it is slow: `!clkena` in the guard below caps enables at every
+    // OTHER clk_sys cycle, i.e. 26.7 MHz against the real board's 16 MHz, so
+    // we are already faster in enables and still behind in work. TG68K simply
+    // takes more cycles per instruction than a 68020, and the header above
+    // has always said so.
+    //
+    // Settings 1-3 therefore go FASTER than the as-built rate by lifting that
+    // every-other-cycle cap, so the deficit can be measured out rather than
+    // guessed at. 1.27x is the ratio 764/600 needs if the loop scales
+    // linearly with enables -- it may not, because instruction fetches wait
+    // on rom_wait regardless of the enable rate, so the right setting is
+    // whichever one makes the SPIN row read 764. That row is on the self-test
+    // page (see the speedometer at the bottom of this file).
+    //
+    // Setting 0 is UNCHANGED from every build before this one: inc 128 makes
+    // thr_go fire on alternate cycles, which is exactly what `!clkena` alone
+    // produced. Nothing moves until someone selects otherwise.
+    wire  [7:0] thr_inc = (cpu_speed == 3'd0) ? 8'd128 :   // as built
+                          (cpu_speed == 3'd1) ? 8'd163 :   // x1.27 -- target
+                          (cpu_speed == 3'd2) ? 8'd192 :   // x1.50
+                          (cpu_speed == 3'd3) ? 8'd255 :   // x2.00, the cap
+                          (cpu_speed == 3'd4) ? 8'd120 :   // 94 %
+                          (cpu_speed == 3'd5) ? 8'd113 :   // 88 %
+                          (cpu_speed == 3'd6) ? 8'd96  :   // 75 %
+                                                8'd64;     // 50 %
+    // 1-3 lift the every-other-cycle cap; everything else keeps it
+    wire        cpu_fast = (cpu_speed >= 3'd1) && (cpu_speed <= 3'd3);
 
     always_ff @(posedge clk) begin
         if (reset) begin
-            thr_acc <= 8'd0;
-            thr_go  <= 1'b1;
-        end else if (cpu_speed == 3'd0) begin
             thr_acc <= 8'd0;
             thr_go  <= 1'b1;
         end else begin
@@ -267,7 +287,7 @@ module rf_main
                     rom_wait <= 1'b0;
                     clkena   <= 1'b1;
                 end
-            end else if (!clkena && !pause && !hs_pause && thr_go) begin
+            end else if ((cpu_fast || !clkena) && !pause && !hs_pause && thr_go) begin
                 // pause: no further clock enables, so the CPU freezes between
                 // bus cycles (a ROM fetch in flight still completes above)
                 if (sel_rom && (busstate == 2'b00 || busstate == 2'b10)) begin

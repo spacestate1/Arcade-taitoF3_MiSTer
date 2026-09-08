@@ -222,7 +222,7 @@ localparam CONF_STR = {
     // always been built; the rest hold the CPU clock enable off in
     // proportion. Watch the SPIN row on the self test page -- real hardware
     // reads 764 there.
-    "O[20:18],CPU Speed,Full,94%,88%,81%,75%,62%,50%,37%;",
+    "O[20:18],CPU Speed,As Built,x1.27 Real HW,x1.5,x2 Max,94%,88%,75%,50%;",
     "O[2],Service Mode,Off,On;",
     // "Off" MUST stay first. MiSTer's status word powers up at 0, so the
     // FIRST entry is what a fresh core load gets -- and with "On" first this
