@@ -66,7 +66,23 @@ Build stamp `07213908`.
 
 - **The sprite corruption is fixed.** Explosions and enemy sprites no longer
   break into flickering, offset copies of themselves. This was the core's
-  worst and longest-standing defect.
+  worst and longest-standing defect: nine days, about thirty instruments.
+
+  **What it actually was.** The sprite engine keeps a store of sprite-row
+  records, double-banked so one frame is drawn while the next is built. It
+  was declared as two banks of 12,288 records -- 24,576 words, which needs 15
+  address bits -- but the address was only 14 bits wide, so Quartus built a
+  16,384-word RAM and the top third simply did not exist. Bank 1's records
+  from 4,096 up landed on bank 0's. Any frame with more than 4,096 records
+  had its tail overwrite the other frame's head, so one frame drew a live
+  list and the next drew a half-stale one: two images, offset, flickering.
+
+  That is why it got WORSE when the store was made bigger, and why every
+  simulation passed -- Verilator models all 24,576 words, so the bug existed
+  only on silicon. **The fix is one number:** 8,192 records per bank, so the
+  two banks are exactly the 16,384-word RAM Quartus builds and no address can
+  alias. The cost is that the very heaviest frames now DROP rows instead of
+  corrupting them, which the self-test page counts on `SPR REC : DROP`.
 - Ray Force, Gunlock and Ray Force (Japan) all start on zone 1.
 - Two debug MRAs added that start at zone 2 on purpose, in
   `releases/experimental/`.
