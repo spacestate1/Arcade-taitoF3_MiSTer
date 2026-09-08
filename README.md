@@ -68,8 +68,7 @@ CPU's writes over the serial port instead of the self-test page.
 
 One `gunlock.zip` covers all three Ray Force regions. Horizontal games need
 **Rotate: None** in the OSD. `experimental/` means it runs but has less
-evidence behind it. `Ray Force (zone 2).mra` is a debug variant: coin + Start
-opens at zone 2.
+evidence behind it.
 
 ## Controls
 
