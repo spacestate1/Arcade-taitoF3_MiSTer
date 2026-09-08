@@ -869,7 +869,13 @@ always_comb begin
         // 20 arabianm 21 ridingf  22 ringrage -- the 12-bit sets, all ROT0
         6'd1,  6'd2,  6'd3,  6'd4,  6'd5,  6'd8,  6'd9,
         6'd10, 6'd13, 6'd14, 6'd15, 6'd16, 6'd17, 6'd19,
-        6'd20, 6'd21, 6'd22: cfg_horizontal = 1'b1;
+        6'd20, 6'd21, 6'd22,
+        // 23 landmakr 24 cupfinal 25 intcup94 26 scfinals 27 pwrgoal
+        // 28 trstar   29 commandw 30 lightbr  31 quizhuhu 33 puchicar
+        // 34 kaiserkn 35 dankuga  36 kirameki  -- all ROT0.
+        // 32 tcobra2 is ROT270 (vertical) and is deliberately absent.
+        6'd23, 6'd24, 6'd25, 6'd26, 6'd27, 6'd28, 6'd29, 6'd30,
+        6'd31, 6'd33, 6'd34, 6'd35, 6'd36: cfg_horizontal = 1'b1;
         // 0 rayforce  6 gunlock  7 rayforcej 11 gseeker
         // 12 spcinv95 18 gekiridn  -- and anything without an id yet
         default: cfg_horizontal = 1'b0;
@@ -1032,6 +1038,13 @@ always_comb begin
         6'd10:   cfg_bankmask = 3'd7;   // Puzzle Bobble 4   (16 MB region)
         6'd13:   cfg_bankmask = 3'd1;   // Cleopatra Fortune  (4 MB region)
         6'd14:   cfg_bankmask = 3'd1;   // Twin Qix           (4 MB region)
+        // 16 MB ensoniq regions, like Puzzle Bobble 3/4: mask 7, three bits
+        6'd23,                          // Land Maker
+        6'd31,                          // Quiz de Hyuuhyuu
+        6'd33,                          // Puchi Carat
+        6'd34,                          // Kaiser Knuckle
+        6'd35,                          // Dan-Ku-Ga
+        6'd36:   cfg_bankmask = 3'd7;   // Kirameki Star Road
         default: cfg_bankmask = 3'd3;   // 8 MB region -- every earlier game
     endcase
 end
