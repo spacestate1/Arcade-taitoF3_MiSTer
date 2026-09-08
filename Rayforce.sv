@@ -716,6 +716,13 @@ wire [10:0] ring_raddr, ring_wptr;
 wire [55:0] ring_rdata;
 wire        ring_full;
 
+// KIRAMEKI's sound-ROM bank index: rf_main latches the main CPU's write to
+// 0x300000 and rf_sound_main uses it for the C20000 window. Declared HERE,
+// above the rf_main instance that drives it -- a net used before its
+// declaration becomes an implicit 1-bit wire, which would silently truncate
+// a 3-bit bank to one bit. This file has been bitten by that before.
+wire  [2:0] snd_bank;
+
 wire [15:0] frame_cnt, irq2_cnt, irq3_cnt;
 wire [15:0] pf_wr_cnt, spr_wr_cnt, pal_wr_cnt, line_wr_cnt, txt_wr_cnt;
 wire [15:0] pal_wr_hi, pal_wr_lo;   // DIAGNOSTIC split, see rf_main
@@ -1236,7 +1243,8 @@ rf_main main
     .ring_arm_en(uart_mode == 2'd2),
     .ring_ext_we(uart_mode == 2'd1 ? aud_ring_we : snd_ring_we),
     .ring_ext_data(uart_mode == 2'd1 ? aud_ring_data : snd_ring_data),
-    .pivot_wr_cnt(pivot_wr_cnt)
+    .pivot_wr_cnt(pivot_wr_cnt),
+    .snd_bank_o(snd_bank)
 );
 
 ////////////////////////  SOUND BOARD  ///////////////////////////
@@ -1273,6 +1281,7 @@ wire [15:0] es_rd_data;
 rf_sound_main sound
 (
     .clk(clk_sys), .reset(cpu_reset), .snd_reset(snd_reset), .pause(pause_eff),
+    .snd_bank(snd_bank),
     .clk_ram(clk_ram),
     .ch_addr(ch5_addr), .ch_dout(ch5_dout), .ch_req(ch5_req), .ch_ready(ch5_ready),
     .dp_addr(snd_dp_addr), .dp_wdata(snd_dp_wdata), .dp_wren(snd_dp_wren),
@@ -1552,6 +1561,9 @@ wire [23:0] game_rgb;
 wire [31:0] vid_dbg_lines, vid_dbg_fetch, vid_dbg_max, vid_dbg_nz, vid_dbg_spr, vid_dbg_rec;
 wire [31:0] vid_dbg_sfetch;
 wire [31:0] vid_dbg_sprpix;   // DIAGNOSTIC: per-line framebuffer verdict
+// still driven by the pipe, just not on the page this build -- referenced
+// so it is not a dangling net (the &{1'b0,...} folds to 0 and prunes it)
+wire        _unused_sprpix = &{1'b0, vid_dbg_sprpix};
 // INSTRUMENT: the two halves of the shared-DDR3-port question. Every counter
 // this core already has sits on the sprite side of that port -- the side that
 // WINS arbitration -- which is why they all read clean while the screen is
@@ -1708,7 +1720,22 @@ rf_selftest selftest
     .vid_nz(vid_seq_ovr),
     .vid_spr(vid_dbg_spr), .vid_rec(vid_dbg_rec),
     .vid_sfetch(vid_dbg_sfetch),
-    .vid_sprpix(vid_dbg_sprpix),   // STALELN:AGE:CNT, see rf_spr_fb
+    // DIAGNOSTIC 2026-09-08: this row carried STALELN:AGE:CNT, which has read
+    // 00000000 on every sample since the sprite corruption was fixed and has
+    // nothing left to say. It now carries SPIN:TWRA:TWRB -- rf_main's
+    // cpu_spin -- to answer the open Darius Gaiden colour bug:
+    //   [31:16] vblank spin-loop reads. REAL HARDWARE READS 764 (0x02FC).
+    //           Fewer means our 68020 fits less work into a frame than the
+    //           real one, which would truncate the game's palette block-copy
+    //           -- and a truncated copy is exactly the reported symptom, the
+    //           SAME sprites rendering red and then correcting on screen when
+    //           the game rewrites the palette at the boss.
+    //   [15:8]  writes seen to the tower palette block A (0x1164-0x1177)
+    //   [7:0]   ... and block B (0x1021-0x103B)
+    //           Zero means the copy never reached palette RAM at all; non-zero
+    //           means it did and the sprite's palette INDEX is wrong instead.
+    // Restore vid_dbg_sprpix here once that is settled.
+    .vid_sprpix(cpu_spin),
     .snd_diag1({pivot_wr_cnt, snd_pc[15:0]}),
     .snd_diag2({snd_es_wr_cnt, 15'd0, snd_running}),
     .snd_diag3({smp_bist_sum[15:0], es_dbg_overrun[7:0], es_dbg_wqdrop[7:0]}),

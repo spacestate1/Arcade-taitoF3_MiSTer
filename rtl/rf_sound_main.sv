@@ -13,7 +13,13 @@
 //    280000-28001F  MC68681 DUART, low byte lane (timer + vector here)
 //    300000-30003F  ES5505 per-voice sample bank
 //    340000-340003  MB87078 volume, high byte lane
-//    C00000-C7FFFF  program ROM, 512 KB, linear (Ray Force never banks)
+//    C00000-C7FFFF  program ROM. Three windows in MAME (cpubank1/2/3 at
+//                   C00000, C20000, C40000), fixed at reset to a LINEAR
+//                   mapping, which is what this maps by default. Only
+//                   Kirameki Star Road ever moves one: taito_f3.cpp's
+//                   sound_bankswitch_w calls set_bank(1, idx) -- cpubank2,
+//                   the C20000 window -- and no other game reaches that
+//                   code at all.
 //    FFFFFC         interrupt acknowledge (FC = 7): the DUART's vector
 //
 //  Reset: the main CPU holds this CPU in reset from boot (C80100) and
@@ -51,6 +57,8 @@ module rf_sound_main
     input  logic        reset,          // system reset
     input  logic        snd_reset,      // held by the main CPU (C80000/C80100)
     input  logic        pause,          // hold this CPU too (MiSTer Pause button)
+    // KIRAMEKI sound-ROM bank for the C20000 window (see the map above)
+    input  logic  [2:0] snd_bank,
 
     // program ROM via rf_prog_bus on its own SDRAM channel
     input  logic        clk_ram,
@@ -267,7 +275,19 @@ module rf_sound_main
                         end
                     end else if (!clkena && !pause && spd == 2'(SPEED_DIV - 1)) begin
                         if (sel_rom && cpu_rd) begin
-                            prog_addr <= {2'b10, a[19:1]};      // SDRAM 0x200000 + offset
+                            // KIRAMEKI: the C20000-C3FFFF window (a[19:17]==1)
+                            // reads bank `snd_bank` of the 128 KB entries that
+                            // start at audiocpu offset 0x100000, rather than
+                            // its linear place. Every other window, and every
+                            // other game, is unchanged -- snd_bank powers up 0
+                            // and nothing but Kirameki ever writes 0x300000.
+                            // word = 0x100000 + bank*0x10000 + a[16:1], which
+                            // is exactly {2'b10, bank[2:0], a[16:1]} in the
+                            // 21-bit field: bit 20 is the 0x200000 byte base,
+                            // bits 18:16 the 128 KB entry, 15:0 the offset.
+                            prog_addr <= (a[19:17] == 3'd1)
+                                       ? {2'b10, snd_bank, a[16:1]}
+                                       : {2'b10, a[19:1]};      // SDRAM 0x200000 + offset
                             prog_req  <= 1'b1;
                             rom_wait  <= 1'b1;
                         end else if (sel_es && cpu_rd && !es_rd_valid) begin

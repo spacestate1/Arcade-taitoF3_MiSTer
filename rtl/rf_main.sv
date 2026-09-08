@@ -195,6 +195,8 @@ module rf_main
     // 64 M10Ks are the sound RAM's); this counts non-zero writes to it so
     // that assumption is checked on every run
     output logic [15:0] pivot_wr_cnt,
+    // KIRAMEKI's sound-ROM bank index, for rf_sound_main's 0xC20000 window
+    output logic  [2:0] snd_bank_o,
 
     // write-ring dump port (UART side)
     input  logic [10:0] ring_raddr,
@@ -337,6 +339,11 @@ module rf_main
     wire sel_line  = (a[23:16] == 8'h62);                           // 620000-62FFFF
     wire sel_pivot = (a[23:16] == 8'h63);                           // 630000-63FFFF
     wire sel_vctrl = (a[23:16] == 8'h66) && (a[15:5] == 11'd0);     // 660000-66001F
+    // 300000-30007F, the sound-ROM bankswitch. KIRAMEKI STAR ROAD ONLY: it is
+    // the only F3 game that banks its sound ROM, and MAME's handler is
+    // guarded by `if (m_game == KIRAMEKI)` with every other game logging
+    // "Sound bankswitch in unsupported game". Write-only.
+    wire sel_sndbank = (a[23:16] == 8'h30) && (a[15:7] == 9'd0);
     wire sel_dpram = (a[23:11] == 13'b1100000000000);               // C00000-C007FF
 
     wire cpu_wr = !nWr && (busstate == 2'b11) && clkena;
@@ -914,6 +921,28 @@ module rf_main
             cpu_spin[7:0]  <= twr_b_cnt;
         end
     end
+
+    // ---- KIRAMEKI sound-ROM bank -----------------------------------------
+    // taito_f3.cpp sound_bankswitch_w, verbatim:
+    //
+    //     idx = (offset << 1) & 0x1e;  if (ACCESSING_BITS_0_15) idx += 1;
+    //     if (idx >= 8) idx -= 8;      m_taito_en->set_bank(1, idx);
+    //
+    // `offset` is a LONGWORD index, so offset<<1 is a[6:1] shifted -- and
+    // masking with 0x1e keeps four bits. Only set_bank(1, ...) is ever
+    // called, i.e. only cpubank2, the 0xC20000 window; banks 1 and 3 keep the
+    // linear mapping this core already gives them. The wrap at 8 makes the
+    // index three bits.
+    logic [2:0] snd_bank;
+    always_ff @(posedge clk) begin
+        if (reset) snd_bank <= 3'd0;
+        else if (cpu_wr && sel_sndbank && clkena) begin
+            // a[6:2] is the longword offset; <<1 then &0x1e is a[5:2],0.
+            // The low half being written adds one, exactly as ACCESSING_BITS_0_15.
+            snd_bank <= {a[4:2], 1'b0} + {2'd0, be[0]};
+        end
+    end
+    assign snd_bank_o = snd_bank;
 
     // ---- zone injector: the one write it intercepts -----------------------
     // 0x402312 (and its 128 KB mirror at 0x422312) is word 0x1189 of the RAM
