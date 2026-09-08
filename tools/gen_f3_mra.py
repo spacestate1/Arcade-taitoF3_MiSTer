@@ -35,9 +35,21 @@ import zipfile
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(REPO, "releases", "experimental")
 
+# SDRAM map profile 0: the layout every game before 2026-09-08 uses. Ensoniq
+# is 8 MB in the RTL but a game that only fills 4 MB simply streams less --
+# it is the last region, so nothing moves.
 SLOT = {"maincpu": 0x200000, "audiocpu": 0x80000, "sprites": 0x400000,
         "sprites_hi": 0x200000, "tilemap": 0x400000, "tilemap_hi": 0x200000,
         "ensoniq": 0x400000}
+
+# Profile 1 (cfg_map = 1, MRA index 2 bit [4]): 42 MB, for the fourteen sets
+# that do not fit profile 0. sprites_hi is 7 MB and tilemap_hi 3 MB because
+# Kaiser Knuckle needs 6.5 and 3 -- both regions are filled only by plain
+# ROM_LOAD, which is exactly what the first sizing script failed to match,
+# and it made this layout 36 MB and too small. See F3-LIBRARY.md.
+SLOT1 = {"maincpu": 0x200000, "audiocpu": 0x300000, "sprites": 0xD00000,
+         "sprites_hi": 0x700000, "tilemap": 0x600000, "tilemap_hi": 0x300000,
+         "ensoniq": 0x800000}
 ROMDIR = os.environ.get("F3_ROMS", "/storage02/roms/mame")
 
 
@@ -57,7 +69,7 @@ def emit(game, spec, out):
     game = dict(game)
     game["note"] = game["note"].replace("--", "-")
 
-    slots = dict(SLOT)
+    slots = dict(SLOT1 if game.get("map") == 1 else SLOT)
     for k, v in game.get("slots", {}).items():
         slots[k] = v
     zf = zipfile.ZipFile(f"{ROMDIR}/{game['set']}.zip")
@@ -172,6 +184,15 @@ def emit(game, spec, out):
     print(f"wrote {out}")
 
 
+SP = ("Its ensoniq banks are sparse: the first ROM fills banks 0 and 1, bank 2 is "
+      "empty, and the second sits in bank 3 (MAME offset 0x600000), so the hole is "
+      "padded to land bank 3 on its boundary.")
+MIR = ("Its sound ROM is half size and is streamed TWICE, because taito_en maps a "
+       "0x140000 region as set_entry(i % 2) = 0,1,0 and this core maps that window "
+       "linearly; zero padding would put silence where the game expects code.")
+P1N = ("USES SDRAM MAP PROFILE 1 (index 2 bit [4]), the 42 MB layout, because its "
+       "sprites do not fit profile 0's 4 MB. Profile 1 gives sprites 13 MB, "
+       "sprites_hi 7 MB, tilemap 6 MB and tilemap_hi 3 MB. ")
 P12 = "A 12-BIT PALETTE GAME. MAME stores this set's colours as RRRRGGGGBBBB0000 in the low word and scales each nibble by 16, selected by game rather than by register (taito_f3_v.cpp palette_24bit_w). The core does the same, from the game id, and MRA index 2 bit [5] also turns it on. "
 SPARSE = 'Its ensoniq banks are sparse: the first ROM fills banks 0 and 1, bank 2 is empty, and the second sits in bank 3 (MAME offset 0x600000), so the hole is padded to land bank 3 on its boundary. Its sound ROM is half size and is streamed TWICE, because taito_en maps a 0x140000 region as set_entry(i % 2) = 0,1,0 and this core maps that window linearly.'
 MIRROR = "sound ROM is half size; streamed TWICE so the third bank window reads bank 0, which is what taito_en's set_entry(i % max) does with a 0x140000 region"
@@ -342,6 +363,47 @@ GAMES = [
    "tilemap":[("il32w",["d21-06.49","d21-07.50"])],
    "tilemap_hi":[("raw","d21-08.51")],
    "ensoniq":[("raw","d21-01.17"),("pad",0x100000,"ensoniq bank 2 is empty in MAME"),("raw","d21-05.18")]}),
+(dict(set="landmakr", name="Land Maker", year="1998",
+       rot="horizontal", cfg1=0x63, cfg2=0x02, vis=3, ext=1, id=23,
+       slots={"ensoniq": 0x800000},
+       btn="Button 1,Button 2,-,-,-,-,Start,Coin,Service,Pause",
+       note=("Horizontal (MAME ROT0). It fits PROFILE 0 -- it was listed as blocked on "
+             "ensoniq, and stopped being so when that region grew 4 MB to 8 MB for "
+             "Puzzle Bobble 3/4. Its region is 16 MB in MAME, so the otisbank mask is "
+             "7 and it needs three bank bits, like those two. Banks 1-3 hold the "
+             "samples and bank 0 is empty, so the hole is padded.")),
+  {"maincpu":[("il32",["e61-19.20","e61-18.19","e61-17.18","e61-16.17"])],
+   "audiocpu":[("il16",["e61-14.32","e61-15.33"])],
+   "sprites":[("il16",["e61-03.12","e61-02.08"])],
+   "sprites_hi":[("raw","e61-01.04")],
+   "tilemap":[("il32w",["e61-09.47","e61-08.45"])],
+   "tilemap_hi":[("raw","e61-07.43")],
+   "ensoniq":[("pad",0x200000,"ensoniq bank 0 is empty in MAME"),
+              ("raw","e61-04.38"),("raw","e61-05.39"),("raw","e61-06.40")]}),
+
+ (dict(set="trstar", name="Top Ranking Stars", year="1993", map=1,
+       rot="horizontal", cfg1=0xA3, cfg2=0x02, vis=3, ext=1, id=28,
+       btn="Punch,Kick,-,-,-,-,Start,Coin,Service,Pause",
+       note=P1N + "Horizontal (MAME ROT0). " + MIR + " " + SP),
+  {"maincpu":[("il32",["d53-15-1.24","d53-16-1.26","d53-18-1.37","d53-20-1.35"])],
+   "audiocpu":[("il16",["d53-13.10","d53-14.23"]),("il16",["d53-13.10","d53-14.23"])],
+   "sprites":[("il16",["d53-03.45","d53-04.46"]),("il16",["d53-06.64","d53-07.65"])],
+   "sprites_hi":[("raw","d53-05.47"),("raw","d53-08.66")],
+   "tilemap":[("il32w",["d53-09.48","d53-10.49"])],
+   "tilemap_hi":[("raw","d53-11.50")],
+   "ensoniq":[("raw","d53-01.2"),("raw","d53-02.3")]}),
+
+ (dict(set="cupfinal", name="Taito Cup Finals", year="1993", map=1,
+       rot="horizontal", cfg1=0x03, cfg2=0x03, vis=3, ext=1, id=24,
+       btn="Shoot,Pass,-,-,-,-,Start,Coin,Service,Pause",
+       note=P1N + "Horizontal (MAME ROT0). Known as Hattrick Hero '93 in Japan. " + MIR + " " + SP),
+  {"maincpu":[("il32",["d49-13.20","d49-14.19","d49-16.18","d49-20.17"])],
+   "audiocpu":[("il16",["d49-17.32","d49-18.33"]),("il16",["d49-17.32","d49-18.33"])],
+   "sprites":[("il16",["d49-01.12","d49-02.8"]),("il16",["d49-06.11","d49-07.7"])],
+   "sprites_hi":[("raw","d49-03.4"),("raw","d49-08.3")],
+   "tilemap":[("il32w",["d49-09.47","d49-10.45"])],
+   "tilemap_hi":[("raw","d49-11.43")],
+   "ensoniq":[("raw","d49-04.38"),("pad",0x100000,"ensoniq bank 2 is empty in MAME"),("raw","d49-05.41")]}),
 ]
 
 # explicit filenames: deriving one from the display name silently overwrote
@@ -352,7 +414,8 @@ FILE = {"spcinv95": "Space Invaders '95", "cleopatr": "Cleopatra Fortune",
         "dariusgx": "Darius Gaiden Extra Version",
         "pbobble3": "Puzzle Bobble 3", "pbobble4": "Puzzle Bobble 4",
         "arabianm": "Arabian Magic", "ridingf": "Riding Fight",
-        "ringrage": "Ring Rage"}
+        "ringrage": "Ring Rage", "landmakr": "Land Maker",
+        "trstar": "Top Ranking Stars", "cupfinal": "Taito Cup Finals"}
 
 def target(g):
     return os.path.join(OUT, FILE[g["set"]] + ".mra")
