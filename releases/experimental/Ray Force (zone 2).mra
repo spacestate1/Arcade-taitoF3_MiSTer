@@ -1,10 +1,10 @@
 <misterromdescription>
-  <name>Gunlock</name>
-  <setname>gunlock</setname>
+  <name>Ray Force (zone 2)</name>
+  <setname>rayforce</setname>
   <mameversion>0288</mameversion>
   <rbf>Rayforce</rbf>
   <year>1994</year>
-  <manufacturer>Taito Corporation</manufacturer>
+  <manufacturer>Taito America Corporation</manufacturer>
   <category>Shoot</category>
   <rotation>vertical</rotation>
   <resolution>15kHz</resolution>
@@ -39,9 +39,9 @@
                                       LOAD16_BYTE into an 8 MB region)
          0x1280000             = 18.5 MB total
 
-       The zip is the MERGED gunlock set; this MRA is the Gunlock
-       version: the region variants differ by exactly one program ROM
-       (ic35: d66-24 Gunlock, d66-25 Ray Force US, d66-20 Ray Force Japan). Parts match by CRC, so the
+       The zip is the MERGED gunlock set; this MRA is the US Ray Force
+       version, which differs from Gunlock by exactly one program ROM
+       (d66-25 instead of d66-24 at ic35). Parts match by CRC, so the
        subfolder layout inside the zip does not matter.
        ============================================================ -->
   <rom index="0" zip="rayforce.zip|gunlock.zip" md5="None">
@@ -51,7 +51,7 @@
       <part name="d66-18.ic24" crc="8418513e" map="0001"/>
       <part name="d66-19.ic26" crc="95731473" map="0010"/>
       <part name="d66-21.ic37" crc="bd0d60f2" map="0100"/>
-      <part name="d66-24.ic35" crc="97816378" map="1000"/>
+      <part name="d66-25.ic35" crc="e08653ee" map="1000"/>
     </interleave>
 
     <!-- pad: maincpu 1 MB -> 2 MB -->
@@ -98,15 +98,12 @@
     <part name="d66-02.ic3" crc="dcdafaab"/>
   </rom>
 
-  <!-- Game config (Rayforce.sv "GAME CONFIG"): game id 6, visarea f3_224a,
-       extend=1. This set differs from Ray Force (US) by exactly one program
-       ROM, so its download stream differs and it needs an expectation of its
-       own. Sharing Ray Force's id 0, as it did until 2026-09-01, made the
-       ROM CHECKSUM row compare this stream against the US set's sum and
-       report FAIL on a perfectly good ROM set.
-       0xA0 = game id 6 ({bit 5, bits 7:6}), visarea 0, extend. -->
+  <!-- ZONE INJECTOR: index 1 bits [4:3] = 1 -> the game starts at ZONE 2.
+       Everything else in this byte is Ray Force (US)'s defaults (visarea
+       f3_224a, extend, game id 0). A debug variant: the worst sprite
+       corruption is at the zone 2 boss, and this gets there in one life. -->
   <rom index="1">
-    <part>A0</part>
+    <part>08</part>
   </rom>
 
   <!-- the 93C46 settings EEPROM: 64 words, saved to config/nvram/<mra>.nvm -->

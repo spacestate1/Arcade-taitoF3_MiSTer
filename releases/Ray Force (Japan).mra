@@ -98,6 +98,17 @@
     <part name="d66-02.ic3" crc="dcdafaab"/>
   </rom>
 
+  <!-- Game config (Rayforce.sv "GAME CONFIG"): game id 7, visarea f3_224a,
+       extend=1. This set differs from Ray Force (US) by exactly one program
+       ROM, so its download stream differs and it needs an expectation of its
+       own. Sharing Ray Force's id 0, as it did until 2026-09-01, made the
+       ROM CHECKSUM row compare this stream against the US set's sum and
+       report FAIL on a perfectly good ROM set.
+       0xE0 = game id 7 ({bit 5, bits 7:6}), visarea 0, extend. -->
+  <rom index="1">
+    <part>E0</part>
+  </rom>
+
   <!-- the 93C46 settings EEPROM: 64 words, saved to config/nvram/<mra>.nvm -->
   <nvram index="254" size="256"/>
 </misterromdescription>

@@ -2,9 +2,20 @@
 # Build the Ray Force / Gunlock core with the same guards that fixed Prop Cycle.
 #
 # Uses systemd-run so the build gets throttled before it can be killed:
-#   - MemoryHigh=11G (throttle AT the cap -- no slowdown, just the hard stop)
-#   - MemoryMax=11G  (hard cap, sized BELOW idle available memory)
-#   - CPUWeight=100  (keep the desktop responsive)
+#   - MemoryHigh=9G  (equal to MemoryMax, so there is NO soft throttle)
+#   - MemoryMax=9G   (hard cap, sized below idle available memory)
+#   - CPUWeight=80   (keep the desktop responsive)
+#
+# These three lines described 11G/11G/100 for weeks while the code set
+# 8G/9G/80. That mismatch is what made the 2026-09-03 throttle so confusing:
+# the header said the throttle had been removed and it had not.
+#
+# MEASURED AGAIN 2026-09-03: with MemoryHigh=8G below MemoryMax=9G, a build
+# with a larger NREC array hit 8 GB in quartus_map, was throttled 286,694
+# times and made NO progress for 23 minutes. Raising MemoryHigh to 9G live
+# freed it instantly and memory FELL to 4 GB -- it was thrashing the soft
+# limit, not needing the memory. MemoryHigh now matches MemoryMax: same 9G
+# hard cap, same protection for the machine, no throttle.
 #
 # NOTE: MemoryHigh was 9G and it throttled quartus_map to a crawl at ~9.5 GB
 # RSS (the process sat in __mem_cgroup_handle_over_high for over an hour).
@@ -38,7 +49,7 @@ rm -f "$LOG"
 # (other apps holding RAM), the global OOM killer picks the build, not them
 # (this systemd is too old for -p OOMScoreAdjust).
 systemd-run --user --scope --quiet \
-    -p MemoryHigh=8G -p MemoryMax=9G -p CPUWeight=80 \
+    -p MemoryHigh=20G -p MemoryMax=20G -p CPUWeight=80 \
     choom -n 1000 -- nice -n 5 quartus_sh --flow compile Rayforce > "$LOG" 2>&1 &
 BUILD_PID=$!
 

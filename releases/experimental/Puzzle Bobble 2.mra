@@ -99,20 +99,22 @@
 
   <!-- Game config (Rayforce.sv "GAME CONFIG"):
          bit [1:0] = 3  visarea f3 (232 lines from line 24), as EAR
-         bit [7:6] = 2  game id: no expectations are measured for this
-                        set, and id 2 lands on the case default, so the
-                        self-test's checksum rows report what they find
-                        rather than failing against another game's
-                        numbers. The page TITLE row will be garbage:
-                        only ids 0 and 1 have title rows defined.
+         bit [5], [7:6] = id 5. The game id is {bit 5, bits 7:6} since the
+                        field was widened past four games. This set used to
+                        sit on id 2, which is Bubble Bobble II's, and would
+                        have been judged against that game's checksums the
+                        moment those arms came back. It now has its own id
+                        and its own title row. No expectations are measured
+                        for it yet, so id 5 lands on the case default and the
+                        checksum rows REPORT what they find.
          bit [2] = 1 asks for NON-extend (eight 32x32 playfields), which is
                         what this game is. Note the inverted sense against
                         MAME's "extend" naming: every MRA written before this
                         bit went live carries 0 there and every one of those
                         games is extend=1, so 0 has to keep meaning extend=1.
-                        0x87 = game id 2, visarea f3, non-extend. -->
+                        0x67 = game id 5, visarea f3, non-extend. -->
   <rom index="1">
-    <part>87</part>
+    <part>67</part>
   </rom>
 
   <nvram index="254" size="256"/>
