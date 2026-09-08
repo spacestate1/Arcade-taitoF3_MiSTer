@@ -152,206 +152,81 @@ three are not.
 
 ---
 
-## Ruled out, with the evidence that did it
+## Ruled out — what the board said no to
 
-| Suspect | Verdict | Evidence |
-|---|---|---|
-| Sprite record store overflow | **ruled out** | `SPR REC : DROP` 0 dropped, every reading since NREC 12,288 |
-| Lines composed before the draw finished ("late") | **ruled out** | `SPRLINE : LATE` 0 late across every capture |
-| Lines displayed from the wrong frame (stale) | **ruled out** | `STALELN:AGE:CNT` 0 always, incl. during visible corruption |
-| Sprite graphics fetch returning wrong data | **ruled out** | `fetch_bad` 00 always |
-| DDR3 sprite framebuffer round trip | **ruled out** | `SPRFOLD WR:RD`: `wr == rd` on every sample, including in a busy scene (values `944A`, `BCE7`, `EEDD`) |
-| Shared DDRAM port / rotation starving the framebuffer | **ruled out** | `ROTSTL:PK:LOST` 0 stalls across 210 samples of real gameplay |
-| Sprite list built short (prepass overrun / walk / expand / fill) | **ruled out** | `RECSEQ`/`NSPRSEQ` constant across four frames on a paused glitch; `PREPASS OVR` 0, finishes at 5 % of the frame (build `07194816`) |
-| Sprite RAM torn by CPU writes during the walk | **ruled out** | `SPRTEAR WR:FRM` = `01C20001`, constant over 126 samples: 450 writes in **one** frame (CPU initialising at core load), never again. Same boot-artifact shape as the `STALELN` count-of-1. |
-| Abandoned-line residue in the line buffer | **ruled out** | Real gap found: `frame_start` mid-draw discards `cur_lo`/`cur_hi`, so the bank's stale pixels are never cleared (`rf_video_spr.sv:956`, and identical on `origin/master`). But `Rayforce.sv:402` records the board measured `draw_unfinished = 0` — the draw always finishes its 256 lines, so the state never occurs. Speculative fix written, tested (bench unchanged), and **reverted**. |
-| Multi-write RAM inference on `cnt` / `rec` | **ruled out** | The mechanism that caused the original sprite splits. All four `cnt` writes (`793`, `825`, `845`, `880`) are in distinct branches of one `case (pst)`, so only one fires per cycle; `rec` has a single write site. |
-| Draw throughput / pixels per clock | **contradicted** | corruption is present on the near-static continue screen |
-| Palette content (Darius) | **ruled out** | 1023/1024 entries identical to MAME's `dg5070` dump |
+Every one of these was checked with a counter on the board, not argued away.
 
-**Read that table carefully.** Every instrument in it sits on the *sprite* side
-of the pipeline, and they all read clean while the picture is visibly wrong.
-That is itself the strongest clue in the file: whatever is wrong is either
-upstream of them all, or in something none of them watches.
+| Suspect | Why it is out |
+|---|---|
+| Record store overflow | 0 rows dropped, every reading since NREC 12,288 |
+| Lines drawn too late | 0 late lines, every capture |
+| Lines shown from the wrong frame | stale-line detector 0, even with corruption on screen |
+| Sprite graphics fetched wrong | fetch self-check 0, always |
+| DDR3 framebuffer corrupting pixels | what went in equals what came out, every sample, busy scenes included |
+| Rotation starving the shared DDR3 port | 0 stalls in 210 gameplay samples (a real bug, fixed anyway) |
+| Sprite list built short | record and sprite counts identical four frames running on a paused glitch |
+| CPU writing sprite RAM during the walk | one boot frame, never again |
+| Line buffer not cleared after an abandoned line | real gap, but the draw always finishes, so it never happens |
+| Two writes into one RAM port (the old sprite-split bug) | every `cnt` write is in its own state; `rec` has one write site |
+| Draw too slow | corruption appears on a near-static screen |
+| Palette contents (Darius) | 1023/1024 entries match MAME |
+
+Every instrument in that table sits on the sprite side and read clean while the
+picture was wrong. That was the clue: the fault was in something none of them
+watched — the size of the memory itself.
 
 ---
 
-## Everything tried, in order
+## Everything tried
 
-**The `PLAYER` column is the one that decides.** Every instrument in this core
-sits on the sprite side of the pipeline and reads clean while the picture is
-visibly wrong, so a measured improvement means nothing until someone looks at
-the screen. This project has already had one case where the player's direct
-observation beat a metric: the tile-row cache measured 3 % and was removed as
-unproven, the picture got worse, and it went back in.
+**PLAYER** is the column that decides. "Not assessed" means nobody looked.
 
-Values: **better** / **worse** / **no change** / **fixed** / **not assessed**.
-"Not assessed" is not a pass -- it means nobody has looked, and several rows
-below have carried that quietly for weeks.
+### Fixes that stayed
 
-### Fixes that were real and stayed
-
-| # | Change | Measured result | PLAYER |
+| # | Change | What it did | PLAYER |
 |---|---|---|---|
-| 1 | **Sprite framebuffer moved to DDR3** (`783c6c7`) | The draw stops racing the raster. Also corrected sprite lag 1 -> 2 frames, matching MAME for this game. | **better** — the player reported level 1 "cleared up" after the video fixes |
-| 2 | **Line-buffer ring 4 -> 8** | Late lines 6,190 -> 974 on the same attract sequence. 86 % of them gone. | not assessed — a counter improvement, never judged on screen. The ring is now back to **2** anyway (see above). |
-| 3 | **Four writes a cycle into a single-write-port RAM** (`17c5bfa`) | **THE root cause of the sprite splits.** Quartus silently kept one write lane; Verilator performed all four. Fixed with a 64-bit `rf_bram`, one write per DDR beat. Verified by an HPS fill-probe. | **fixed** — the splits are gone; confirmed by fill-probe and by live battleships matching MAME |
-| 4 | **`NREC` 10,240 -> 12,288** | Fixed 646 sprite rows dropped at the zone 2 boss. Real, but **changed nothing visible**. | **no change** — stated explicitly at the time |
-| 5 | **Pen mask was one bit too narrow** | Latent bug, fixed. | **no change** either way — bisected 2026-09-07 (build `07190811`), innocent |
-| 6 | **Tile-row cache** (`rf_spr_gfx_bus`) | 3 % on the worst line, no change to the late-line rate. Kept because the player reported the picture worse without it -- a direct observation beating a metric. | **worse without it** (earlier), **no change** to the target glitch (bisected 2026-09-07) — innocent |
-| 7 | **Lookahead skip** | Longest sprite line 14,676 -> ~9,500-11,300 clocks. | **worse without it** (tears return) and **no change** to the target glitch — bisected 2026-09-07, innocent and necessary |
-| 8 | **Rotation write FIFO** (`rf_ddr_arb`, 2026-09-07) | Fixes a genuine Avalon `waitrequest` violation in `screen_rotate` (see below). **Latent, not this bug** -- but correct, cheap (~106 ALMs, 2 M10K) and kept. | **no change** expected and none seen — the violation never fires here |
-| 31 | **`NREC` 12,288 -> 8,192** (`rf_video_spr.sv`, 2026-09-08, build `07213908`) | **THE FIX.** Quartus built the record store as 16,384 words for a 24,576-word declaration; 2 x 8,192 matches the RAM exactly so no record can alias (map log: `rec_rtl_0 NUMWORDS 16384, WIDTHAD 14`). `FOLDSEQ` constant on both parities, `rf_flicker` one state. Cost: row drops above 8,192 records (the boss, ~2,600/frame). | **"fixed almost all of it"** -- the first build to change the picture |
+| 1 | Sprite framebuffer moved to DDR3 | Draw stops racing the raster; sprite lag now matches MAME | better |
+| 2 | Line-buffer ring 4 → 8 | 86 % fewer late lines. Ring is back to 2 now — the framebuffer took its job | not assessed |
+| 3 | One write per RAM port (`17c5bfa`) | **Fixed the sprite splits.** Quartus kept one of four write lanes; Verilator did all four | fixed |
+| 4 | `NREC` 10,240 → 12,288 | Stopped 646 dropped rows at the boss — and lowered the aliasing threshold. Made the corruption worse | no change |
+| 5 | Pen mask 5 → 6 bits | Latent bug fixed | no change either way |
+| 6 | Tile-row cache | 3 % on the worst line | worse without it |
+| 7 | Lookahead skip | Worst line 14,676 → ~10,000 clocks | worse without it (tears come back); innocent |
+| 8 | Rotation write FIFO | Fixes a real DDR3 handshake bug that never fires here | no change |
+| **31** | **`NREC` 12,288 → 8,192** | **THE FIX.** The store now matches the RAM Quartus builds; nothing can alias | **"fixed almost all of it"** |
 
-### Attempts the board rejected
+### Attempts that failed
 
-| # | Change | Why it failed | PLAYER |
+| # | Change | Why | PLAYER |
 |---|---|---|---|
-| 9 | **One SDRAM channel per fetch bus** (`ch4` + `ch7`, build `29224005`) | Bench doubled the headroom; the board moved the longest line only 8 % (16,063 -> 14,809) and late lines kept climbing. Cause: `ch7` sat *below* `ch4` in fixed priority while the draw consumes the two buses in strict alternation, so the slower bus gated the pair. The bench had modelled both channels with the *same* latency -- an assumption written into the bench, never measured. | not assessed — rejected on counters before it reached a screen |
-| 10 | **Transparent-quad skip** | A strict subset of the lookahead skip. **Removed.** Do not credit it. | not assessed |
-| 11 | **`NREC` 13,312** | Does not fit: `Error 11802`, memory placement. ALM headroom is irrelevant -- the 12,288 build that followed had 2,567 ALMs spare. | n/a — never built |
-| 12 | **Rotation-drops-writes theory** (2026-09-07) | The Avalon violation is real and provable in `sys/arcade_video.v`, and simulation shows it losing 5-70 % of pixels when the port is busy. **But `waitrequest` never actually fires on this hardware** -- 0 stalls across 210 gameplay samples. Protocol-correct, never exercised. The load-scaling argument was also wrong: `rf_video_spr.sv:1082` issues `fb_req` for *every drawn line*, so framebuffer traffic is constant per frame regardless of sprite density. | **no change** — ruled out by counters, 0 stalls in 210 gameplay samples |
+| 9 | One SDRAM channel per fetch bus | Board moved the worst line 8 %; the bench had assumed equal latency on both | not assessed |
+| 10 | Transparent-quad skip | Subset of the lookahead skip. Removed | not assessed |
+| 11 | `NREC` 13,312 | Does not fit | never built |
+| 12 | Rotation-drops-writes theory | Real bug, never fires here | no change |
 
-### Not yet tried — the obvious next move
+### Bisect of the uncommitted changes (all innocent)
 
-| # | Change | Why |
+| # | Build | Off | PLAYER |
+|---|---|---|---|
+| 22 | `07154217` | lookahead skip | glitch unchanged; other tears came back |
+| 23 | `07190811` | cache + pen mask | glitch unchanged; tears gone |
+
+### Instruments (measure, do not fix)
+
+| # | Instrument | Said |
 |---|---|---|
-| 25 | **Find the BASE bug** | Every uncommitted change is now cleared (rows 22-23). Whatever is wrong is in the committed code and has survived every instrument. The sequence rows (26-28) are the next measurement. |
-
-### The bisect (2026-09-07, in progress)
-
-The player's report that the committed build has **fewer streaks but not none**
-splits the problem: a base bug in committed code, plus amplifiers in the
-uncommitted work. `LK_SKIP` in `rf_video_spr.sv` degenerates the lookahead skip
-to the committed behaviour so each amplifier can be tested without reverting
-the others.
-
-| # | Build | Change | Measured result | PLAYER |
-|---|---|---|---|---|
-| 22 | `07154217` | **Lookahead skip OFF** (`LK_SKIP = 1'b0`) | Worst sprite line 9,951 -> 15,615 clocks in play (+56 %), still 0 late. | **target glitches UNCHANGED; other screen tears CAME BACK.** The skip is innocent and earns its place. Back ON. |
-| 23 | `07190811` | **Tile-row cache OFF + pen mask back to 5 bits** (`CACHE_EN = 0`, `PENMASK6 = 0`), skip on | Timing met, HDMI +0.198. `rf_flicker`: 2 states, bands y 25-69 and 155-198, 11,762 px — identical structure to every other build. | **target glitches UNCHANGED; tears gone** (the skip is back). Cache and pen mask are innocent. |
-
-**Bisect verdict: all three uncommitted functional changes are cleared as the
-cause.** The base bug is in the committed code alone. "Fewer streaks on GitHub"
-is therefore either perception, or `NREC` 10,240 dropping records at the boss
-(fewer sprites drawn = fewer sprites to corrupt), not a mechanism.
-
-### Queued for the next build: the SEQUENCE instruments (2026-09-07)
-
-Every sprite counter on the page is **peak-held**, and a peak-hold cannot see an
-alternation -- 6,500 records one frame and 3,000 the next leave the same 6,500
-behind. The board's corruption is exactly an alternation, so these report the
-last FOUR frames as a sequence, newest first, and they work **while the game is
-playing**: no pause, no static scene needed.
-
-| # | Row | Value | What it answers |
-|---|---|---|---|
-| 26 | `RECSEQ N:N-1` / `RECSEQ N-2:N-3` | records built, last 4 frames | Healthy: four similar numbers drifting with the action. The bug: **X Y X Y**. |
-| 27 | `NSPRSEQ N:N-1` / `NSPRSEQ N-2:N-3` | sprites the walk found, last 4 frames | Splits the prepass: NSPRSEQ steady + RECSEQ alternating = the walk is fine and the expand/fill falls short. |
-| 28 | `PREPASS OVR:END` | {frames where the prepass was still busy at `frame_start`, clocks from `frame_start` to prepass idle / 16} | **The direct test of the leading theory.** OVR must be 0. END near `DD00` (a whole frame) is a near miss. |
-
-**RESULT (build `07194816`, paused on a glitch, 64 samples):**
-
-```
-RECSEQ    11EB 11EB 11EB 11EB     4,587 records, identical, four frames running
-NSPRSEQ   0150 0150 0150 0150       336 sprites, identical, four frames running
-PREPASS   0000 0AA2                 0 overruns; finishes 5 % into the frame
-```
-
-while `rf_flicker` on the same screen: 2 states, 8,138 px, bands y 16-51 and
-161-210. **The prepass builds the identical list every frame and the picture
-still alternates.** Walk, expand and fill are all cleared; the prepass-overrun
-theory is dead by its direct test. (In attract `NSPRSEQ` alternated 501/386 --
-that is the GAME's own sprite flicker, not the core.) PLAYER: glitch "slightly
-better" on this build -- no functional change, so perception or scene.
-
-So the fault is downstream of the record store: the **draw** or the **mixer**.
-Rows 17-20 are re-borrowed for the pair that splits them:
-
-| # | Row | Value | What it answers |
-|---|---|---|---|
-| 29 | `FOLDSEQ` (2 rows) | `rf_spr_fb.wr_fold` -- sum of every sprite pixel the draw handed to DDR3 -- last 4 frames | **X Y X Y = the draw's output alternates from identical input.** Constant = the draw is deterministic. |
-| 30 | `USEDSEQ` (2 rows) | rotate-xor hash of every `used_line[par][*]` the draw published -- last 4 frames | **X Y X Y with FOLDSEQ constant = identical sprite pixels composed differently by the mixer.** The per-line priority flags are double banked by parity, and the bench already reports a used-flag diff on frame 4200. |
-
-**RESULT (build `07203817`, paused on a glitch, 63 samples). Read with the
-page's phase in mind: the 28-row page renders one row per frame, so row 17
-always samples the same frame parity and row 18 the other.**
-
-```
-FOLDSEQ   parity X:  3DEB 3DEB 3DEB 3DEB ...     constant, every sample
-          parity Y:  5DB8 / 6EEB / 3BE2 / 3898   VARIES -- four distinct values
-USEDSEQ   parity X:  3CAC    parity Y:  D5B5     constant on each side
-```
-
-`rf_flicker` on the same screen: **three** states this time (A x6, B x3, C x1),
-bands y 13-37 and y 128-220, A-vs-B 10,945 px.
-
-**Verdict: THE DRAW.** On one frame parity its output is identical every frame;
-on the other it is wrong AND DIFFERENT EACH TIME. The record store is proved
-identical frame to frame (RECSEQ/NSPRSEQ), so varying output from constant
-input means the draw is not reading its input reliably on that parity. USEDSEQ
-alternating is a consequence (different sprites drawn -> different priority
-groups present), not independent evidence for the mixer.
-
-What is parity-dependent in the draw: `rb`, the bank of `rec[rb][fc]` and
-`sl_d[rb][sidx_r]` it reads -- both MLAB, both async read, both
-`no_rw_check`, and both written by the prepass in the OTHER bank during the
-same frame. One bank reads back correctly; the other reads back varying
-garbage. That is the shape of a hardware read hazard, not a logic bug -- and
-it is exactly the class of fault (a memory behaving differently on silicon
-than in Verilator) that produced the sprite splits.
-
-**Refinement, same capture:** the two bad states B and C differ from each
-other by only **31 pixels** (rows 24-25). The bad parity is therefore a
-STABLE wrong rendering with a tiny jitter -- a deterministic read of the wrong
-data, not metastability. And only 17 % of its wrong pixels look like terrain
-showing through: the bad parity mostly draws DIFFERENT SPRITE CONTENT, from a
-record store proven to hold the same count. Same count, different content =
-the draw is reading a different list on that parity.
-
-**Reinterpretation after viewing the states (`ABC_lower.png`):** the flicker
-tool labels by count, and here the MAJORITY state A is the CORRUPTED one; B and
-C are the clean renders. That flips which fold value belongs to which:
-
-- **bad parity: fold `3DEB`, constant across 63 samples**
-- **good parity: fold VARIES** (`5DB8`/`6EEB`/`3BE2`/`3898`) -- because the
-  good render tracks the game's slight animation on the continue screen
-
-**The bad parity draws the same thing every frame even as the game moves.** It
-is not misreading a live list; it is reading a list that never changes. That is
-a **stale bank**: `RECSEQ` is a counter in the prepass, not a read-back of the
-store, so "4,587 records every frame" says the prepass RAN, not that its writes
-LANDED. If writes to one bank of `rec[wb]` / `sl_d[wb]` do not take on silicon,
-that bank holds whatever it held before, and every other frame is drawn from
-it. Same class as the sprite-split root cause (`17c5bfa`): a memory write that
-Quartus implements differently than Verilator, which is why every bench passes.
-
-**Next build (31): bank vs parity.** Two one-line changes: (a) the PREPASS row's
-top byte now carries {rb, par} at the sampled phase, so the bad half can be
-named by bank; (b) the prepass reset parity is SWAPPED (wb=1, rb=0). If the
-bad half moves to the other frame parity, it follows the record BANK
-(`rec[rb]` / `sl_d[rb]`) and the fault is in one bank of those MLABs. If it
-stays, it follows `par` (`used_line`, the framebuffer bank).
-
-They take rows 17-20 (the PLAYFIELD / SPRITE / LINE RAM / TEXT AND CHAR write-count
-liveness rows, bring-up checks the working pipe already implies) and row 25
-(SPRTEAR, which did its job). The bisect switches are restored to the
-working-tree configuration (`LK_SKIP=1`, `PENMASK6=1`, `CACHE_EN=1`) so the
-instruments characterise the core as it normally runs. Bench: 71680/71680.
-
-### Instruments built (measurement, not fixes)
-
-| # | Instrument | What it said | PLAYER |
-|---|---|---|---|
-| 13 | Per-line CRC in the framebuffer | Lines verify their own content round trip. |
-| 14 | `miss` / `hit_seen` phantom-count fix (build F) | Removed exactly one spurious miss per frame (28 per page pass). The row is now honest; the zero it reads is a **counter fix, not a fit**. |
-| 15 | Stale-line detector (`STALELN:AGE:CNT`) | 0, always -- including with corruption frozen on screen. |
-| 16 | Fetch self-check (`fetch_bad`) | 00, always. **Caveat:** it compares a re-fetch against the *cached* copy for the same key, so it validates data consistency, not that the key was right. |
-| 17 | Fold pair (`SPRFOLD WR:RD`, 2026-09-07) | `wr == rd` always. Built weeks ago and **never routed to a page row**, which is why the question it answers stayed open. |
-| 18 | Rotation stall/peak/lost (`ROTSTL:PK:LOST`, 2026-09-07) | 0 / 1 / 0. Ruled the shared port out. |
-| 19 | Sprite-RAM tear counter (`SPRTEAR WR:FRM`, 2026-09-07) | `01C20001` constant: 450 writes during the walk in **one** frame (boot), never again. Theory dead. |
-| 20 | Zone injector | Test tooling: coin + start opens at zone 2 on demand. Confirmed on hardware. |
-| 21 | Frame-to-frame stability check in `pipe_tb` (2026-09-07) | The bench compared only the **last** of four rendered frames, so an alternation between a good and a garbage frame was invisible by construction. Now it compares consecutive frames. Found **no instability** across six dumps including boss content -- so the alternation is board-only. |
+| 13 | Per-line CRC in the framebuffer | lines round-trip intact |
+| 14 | `miss` phantom-count fix | removed one false miss per frame |
+| 15 | Stale-line detector | 0, always |
+| 16 | Fetch self-check | 0, always |
+| 17 | Fold pair `SPRFOLD` | in == out, always. Built weeks earlier, never wired to the page |
+| 18 | Rotation stall / peak / lost | 0 / 1 / 0 |
+| 19 | Sprite-RAM tear counter | one boot frame only |
+| 20 | Zone injector | coin + Start opens at zone 2 |
+| 21 | Frame-to-frame check in `pipe_tb` | bench had compared only the last frame; now compares consecutive ones |
+| 26–28 | `RECSEQ` / `NSPRSEQ` / `PREPASS` | prepass identical every frame; overrun 0 |
+| 29–30 | `FOLDSEQ` / `USEDSEQ` | **draw output constant on one parity, stale on the other — the reading that led to the map report** |
+| — | `tools/rf_flicker.py` | diff a static screen against itself: found the two-state alternation after seven counters read clean |
 
 ---
 
