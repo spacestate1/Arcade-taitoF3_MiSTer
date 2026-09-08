@@ -55,10 +55,15 @@ what each lever costs. Read it before adding anything to the RTL.
 ## How to run it
 
 1. Copy the newest `releases/Rayforce_*.rbf` to `/media/fat/_Arcade/cores/`.
-   Today that is `Rayforce_20260907.rbf` (build stamp `07213908`, the one
-   the sprite-corruption fix went into). The older bitstreams in that
-   directory predate the per-game config byte and do not match these MRAs.
+   Today that is **`Rayforce_20260908.rbf`** (build stamp `08154107`). It is
+   the only bitstream that runs the whole library: the earlier ones predate
+   the 42 MB map profile and the 17-bit sprite codes, so most of the games
+   below either will not load or will render as coloured noise on them.
    [RELEASE-NOTES.md](RELEASE-NOTES.md) says what changed in each.
+
+   **One bitstream runs every game.** Each `.mra` names it (`<rbf>Rayforce</rbf>`)
+   and appears as its own entry in the arcade menu; there is no per-game
+   bitstream and selecting a game reconfigures nothing.
 2. Copy the `.mra` files you want to `/media/fat/_Arcade/`.
 3. Put the MAME ROM zips in `/media/fat/games/mame/`. ROMs are matched by
    CRC, so a merged set is fine.

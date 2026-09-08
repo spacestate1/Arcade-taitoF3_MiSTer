@@ -3,9 +3,46 @@
 # Verify with either:
 #     python3 tools/check_files.py
 #     md5sum -c md5sums.txt      (run from releases/)
+18c135600880585fb71feb5516cbafdd  Bubble Bobble II.mra
+79e3ae082436e678cbb68ea717c862e5  Darius Gaiden.mra
+6541b06001c3d887835c7b3c074f1439  Elevator Action Returns.mra
 820fcf7b900f707e39cf7d07ee911703  Gunlock.mra
+048a8373276942eee67587e5fb672ba6  Puzzle Bobble 2.mra
 ca1e1f17769fe3cb56eca6dacd52c390  Ray Force (Japan).mra
 a7651e8e39b49c1804ff9cda6afeb757  Ray Force.mra
 18c1d2277316529e1f8766ad9dbb51ff  Rayforce_20260828.rbf
 d02956376eaf9cffa71a594cb8be9823  Rayforce_20260831.rbf
 affa4758ac9db62b802a9c1564cfa7a0  Rayforce_20260907.rbf
+71c981a1be6ed2d835ff2c6f77fa8052  Rayforce_20260908.rbf
+297ec0641a10f0da08b67b9f8f31fb81  experimental/Arabian Magic.mra
+5c4ab8b202f493b4d90b6d9787ded793  experimental/Arkanoid Returns.mra
+03cbe49ac858bb2c6564d69887a448d8  experimental/Bubble Memories.mra
+ed542abe79760b4ac9925d3494d3083f  experimental/Cleopatra Fortune.mra
+af003dab3e31ded0090a4b45df2b809b  experimental/Command War.mra
+d8bbf59c3fc295afc1a874ff65fe232e  experimental/Dan-Ku-Ga.mra
+c9df376f0f19f6075c299ac45118d5c3  experimental/Darius Gaiden (write ring).mra
+24246fec24c6ca92bb73495a98205d7c  experimental/Darius Gaiden Extra Version.mra
+ac3411d7f66686ccf64f1cf379f9e724  experimental/Gekirindan.mra
+e424f721a73e552f4f7c439503b00c43  experimental/Grid Seeker.mra
+7e70052988acd5d1590a79454dcdad74  experimental/Gunlock (zone 2).mra
+650ca572959f6f325538b1fc476bee62  experimental/International Cup 94.mra
+64d884a41302944eff1e93fa8d54c75b  experimental/Kaiser Knuckle.mra
+5636f3188b1b3e83f3e78d6e0779427a  experimental/Land Maker.mra
+6890b428b43d9b961d9fe2f571c87ddd  experimental/Light Bringer.mra
+3605616d7a5a329518ff410b639ff273  experimental/Pop 'n Pop.mra
+ad52fe69fa236d531be7e2f5ba2b300b  experimental/Puchi Carat.mra
+482d07485a79fb8f7f9c566451942ade  experimental/Puzzle Bobble 3.mra
+17331cd39ba47eee6766407d9a94ba7b  experimental/Puzzle Bobble 4.mra
+f1faf4173f665b388de914d1be785bff  experimental/Quiz Theater.mra
+b602bafcc09e102d48de7bbd65b03c3d  experimental/Quiz de Hyuuhyuu.mra
+9dd0f5aee7aeefbd4c814e4722972997  experimental/Ray Force (zone 2).mra
+9dc45d745b4943bd4e10618f183c2a56  experimental/Recalhorn.mra
+23ebf30a11deaa28520bab7ad41f094d  experimental/Riding Fight.mra
+4d29798f02b2701e141badc8e87ae9e2  experimental/Ring Rage.mra
+ef9407fba86c0c00ee731776d3d68cd4  experimental/Space Invaders '95.mra
+509731db30a8dd55a0f375ed3e9e73ce  experimental/Super Cup Finals.mra
+a38dda2028c2f348a8754ef0a0d362e5  experimental/Taito Cup Finals.mra
+238069ceef4495935c963527ba0071f7  experimental/Taito Power Goal.mra
+4a89499398be43d57fdf2dd36763da2a  experimental/Top Ranking Stars.mra
+e80fc24daeb142dfdec1f9dd32293e1a  experimental/Twin Cobra II.mra
+db91879484d9caaf436153d09af17490  experimental/Twin Qix.mra

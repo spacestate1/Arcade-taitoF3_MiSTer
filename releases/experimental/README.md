@@ -1,119 +1,87 @@
 # Experimental
 
 Games that run on this core but have not earned the evidence the Ray Force
-set has. Each section says what state its game is actually in.
+set has. **They use the same bitstream as everything else** -- every MRA here
+says `<rbf>Rayforce</rbf>`. "Experimental" is a statement about how much is
+known about them, not about how they are built or loaded. Copy one to
+`/media/fat/_Arcade/` and it appears in the menu and plays like any other.
 
-| MRA | ROM zip | State |
-|---|---|---|
-| Elevator Action Returns | `elvactr.zip` | Plays; video verified against MAME, sound never correlated |
-| Bubble Bobble II | `bublbob2.zip` | Plays on hardware; not frame-verified |
-| Bubble Memories | `bubblem.zip` | MRA written, never loaded |
-| Puzzle Bobble 2 | `pbobble2.zip` | Needs `extend=0`; see below |
+What "confirmed" means below, and it is a low bar: the game booted on real
+hardware, rendered its attract screen correctly, and accepted a coin. **None
+of these has been played through.** A rendering fault that only shows in play
+would not have been caught -- the Darius Gaiden colour bug is exactly that
+kind, and it took a player to find it.
 
-All four are horizontal games (MAME ROT0) on a core whose main title is
-vertical, so set **Rotate to None** in the OSD for any of them.
+Horizontal games no longer need Rotate set by hand; the core forces it per
+game. Vertical ones still want Rotate CW or CCW.
 
-## Elevator Action Returns.mra
+`profile 1` marks the sets that use the 42 MB SDRAM map rather than the
+18.5 MB one. Nothing about loading them differs; it is which region layout
+the MRA and the core agree on.
 
-**It runs, and its picture now matches MAME pixel for pixel.** The game
-boots, plays, and draws sprites and playfields; the sound CPU streams to the
-ES5505 and the main CPU takes one vblank interrupt per frame. Everything the
-ROMs can prove about themselves passes: download size, checksum, SDRAM
-readback and the sample-fetch path all match values computed offline from the
-MRA, and the 68020's write stream matches MAME's exactly for the first 4096
-bus writes.
+| MRA | MAME set | screen | map | state |
+|---|---|---|---|---|
+| Arabian Magic | `arabianm` | horizontal | profile 0 | confirmed on hardware |
+| Arkanoid Returns | `arkretrn` | horizontal | profile 0 | confirmed on hardware |
+| Bubble Memories | `bubblem` | horizontal | profile 0 | confirmed on hardware |
+| Cleopatra Fortune | `cleopatr` | horizontal | profile 0 | confirmed on hardware |
+| Command War | `commandw` | horizontal | profile 1 | confirmed on hardware |
+| Dan-Ku-Ga | `dankuga` | horizontal | profile 1 | confirmed on hardware |
+| Darius Gaiden (write ring) | `dariusg` | horizontal | profile 0 | **never loaded** |
+| Darius Gaiden Extra Version | `dariusgx` | horizontal | profile 0 | confirmed on hardware |
+| Gekirindan | `gekiridn` | vertical | profile 0 | confirmed on hardware |
+| Grid Seeker | `gseeker` | vertical | profile 0 | confirmed on hardware |
+| Gunlock (zone 2) | `gunlock` | vertical | profile 0 | **never loaded** |
+| International Cup 94 | `intcup94` | horizontal | profile 1 | confirmed on hardware |
+| Kaiser Knuckle | `kaiserkn` | horizontal | profile 1 | confirmed on hardware |
+| Land Maker | `landmakr` | horizontal | profile 0 | confirmed on hardware |
+| Light Bringer | `lightbr` | horizontal | profile 1 | confirmed on hardware |
+| Pop 'n Pop | `popnpop` | horizontal | profile 0 | confirmed on hardware |
+| Puchi Carat | `puchicar` | horizontal | profile 1 | confirmed on hardware |
+| Puzzle Bobble 3 | `pbobble3` | horizontal | profile 0 | confirmed on hardware |
+| Puzzle Bobble 4 | `pbobble4` | horizontal | profile 0 | confirmed on hardware |
+| Quiz Theater | `qtheater` | horizontal | profile 0 | confirmed on hardware |
+| Quiz de Hyuuhyuu | `quizhuhu` | horizontal | profile 1 | confirmed on hardware |
+| Ray Force (zone 2) | `rayforce` | vertical | profile 0 | **never loaded** |
+| Recalhorn | `recalh` | horizontal | profile 0 | confirmed on hardware |
+| Riding Fight | `ridingf` | horizontal | profile 0 | confirmed on hardware |
+| Ring Rage | `ringrage` | horizontal | profile 0 | confirmed on hardware |
+| Space Invaders '95 | `spcinv95` | vertical | profile 0 | confirmed on hardware |
+| Super Cup Finals | `scfinals` | horizontal | profile 1 | confirmed on hardware |
+| Taito Cup Finals | `cupfinal` | horizontal | profile 1 | confirmed on hardware |
+| Taito Power Goal | `pwrgoal` | horizontal | profile 1 | confirmed on hardware |
+| Top Ranking Stars | `trstar` | horizontal | profile 1 | confirmed on hardware |
+| Twin Cobra II | `tcobra2` | vertical | profile 1 | confirmed on hardware |
+| Twin Qix | `twinqix` | horizontal | profile 0 | confirmed on hardware |
 
-Measured against MAME frame by frame, over the **full 232-line visarea**:
+## The ones that are not merely untested
 
-    make -C sim ear-pipe-all        # playfields + pivot + sprites + mixer
-    make -C sim ear-mix-all         # the mixer, sprites/pivot fed from the model
-    make -C sim ear-spr-line-all    # the sprite line buffer
+- **Kaiser Knuckle** and **Dan-Ku-Ga** are the largest sets in the library at
+  36 MB, and the reason the 42 MB map profile exists. They also needed sprite
+  tile codes widened from 15 bits to 17: at 15 bits the core could address
+  4 MB of their 13 MB of sprites, and they rendered as coloured noise.
+- **Puzzle Bobble 3** and **4** were long listed as blocked on ROM space and
+  were not. Their sample region is 16 MB against Ray Force's 8, which makes
+  taito_en's otisbank mask 7 rather than 3 -- three bank bits, not two. They
+  fit the ordinary map once that was fixed.
+- **Land Maker** needed nothing of its own. It fell out of the ensoniq region
+  growing for Puzzle Bobble 3/4 and the same 3-bit bank.
+- **Arabian Magic**, **Riding Fight** and **Ring Rage** are the 12-bit palette
+  games: they store colour as RRRRGGGGBBBB0000 in the low word rather than as
+  32-bit 0RGB. MAME selects that by game rather than by register, and so does
+  this core.
+- **Kirameki Star Road** is the one F3 game with NO MRA here. It is the only
+  set that banks its sound ROM, and while the core now implements that bank,
+  its 4 MB audiocpu region with a ROM_LOAD16_WORD_SWAP block still needs a
+  layout working out. Nothing can verify it either: wrong banking sounds
+  wrong rather than looking wrong, and there is no reference dump.
+- **Space Invaders DX** (`spcinvdj`) has no MRA for a duller reason: the ROM
+  is not on the shelf. It is the fourth 12-bit palette game.
 
-    ear-pipe-all      10/10 frames identical   (742,400 pixels)
-    ear-mix-all       10/10 frames identical
-    ear-spr-line-all   9/10; frame 4200 has 0 pixel diffs, 8 used-flag diffs
+## Regional and alternative versions
 
-Five of those ten frames (3000, 3600, 4200, 4800, 5400) were dumped from MAME
-*after* the fixes and never used to develop them, so they are an out-of-sample
-check. Ray Force is unaffected: 19/19 on both of its equivalents.
-
-It is still here rather than in `releases/` because:
-
-- **Ten frames are not a game.** They cover attract and the character select,
-  not a playthrough. Nothing has been checked past ~90 seconds of emulated
-  time, and nothing has been played to the end of a stage on hardware.
-- **The pivot (pixel) layer is a mirror, not real RAM** — 8 KB repeated
-  across the 64 KB window. It passes this game's power-on RAM test because
-  that test reads each location straight back after writing it, and the game
-  does not otherwise keep data there, but it is not the real chip.
-- **Sound has not been correlated** the way Ray Force's was (which measured
-  1.000 against MAME's own mix). The path runs; its accuracy is unmeasured.
-
-Note the model needs `F3_VIS=f3` and the benches need the matching window and
-flip: this game's visible raster is the base f3 one, 232 lines from line 24,
-where Ray Force uses 224 from line 31, and this game never sets flipscreen
-while Ray Force sets it permanently. The `ear-*` targets pass all of that for
-you.
-
-### Set Rotate to None
-
-This is a **horizontal** game (MAME ROT0) on a core whose other title is
-vertical, so set Rotate to None in the OSD.
-
-See "Elevator Action Returns" in `HANDOFF.md` for how it got here, including
-the three defects that turned out to be Ray Force's dimensions frozen into
-the RTL as constants.
-
----
-
-## Bubble Bobble II.mra
-
-**Runs on hardware** (2026-08-31), and it needed no RTL change at all: an MRA
-and a config byte, which is what the universal F3 map and the game-config
-byte were built for. Title screen, character select, cutscenes and play all
-draw correctly.
-
-It shares more with Ray Force than Elevator Action Returns does. MAME runs it
-on `f3_224a`, the same 224-lines-from-31 crop Ray Force uses, and the same
-playfield `extend` setting, so its config byte's visarea field is Ray Force's
-own value. Its ROM shape is Ray Force's too, padding included.
-
-**Not frame-verified.** The reference model is exact on only 3 of 10 dumped
-frames for this game, so there is nothing trustworthy yet to check the RTL
-against. The gap is in the sprite block/multi path, which these games set on
-roughly 97 % of sprites where Ray Force sets it on 2 %. Close the model first;
-see `PREP-BUBBLE.md`.
-
-Horizontal game: set Rotate to None.
-
-## Bubble Memories.mra
-
-**Untested.** The MRA is written and assembles to the same 18.5 MB stream as
-every other set, and all ten self-test expectations are measured, but it has
-never been loaded on a board.
-
-Its one structural novelty is that it has **no `sprites_hi` ROM** at all
-(MAME declares the region `EMPTY_SPRITE_HIDATA`), so its sprites are 4bpp
-where every other set here is 6bpp. That looked like the risk and is not: the
-reference model renders three of its frames pixel-identical to MAME with that
-region all zeros.
-
-Horizontal game: set Rotate to None.
-
-## Puzzle Bobble 2.mra
-
-The first **`extend=0`** game here: eight 32x32 playfields instead of four
-64x32, which changes playfield addressing rather than a size somewhere. The
-config byte asks for it with bit [2] set (`0x87`). Note that bit's sense is
-inverted against MAME's "extend" naming, because every MRA written before it
-went live carries 0 there and every one of those games is extend=1.
-
-This is the Japanese set (`pbobble2j`), not the parent. MAME's parent
-`pbobble2` runs `init_pbobbl2p`, which patches the program ROM at
-0x40090/0x40094 to NOP a branch its own comment calls "protection check?? or
-some kind of checksum fail?". No such patch can exist here, and real hardware
-presumably ran the ROM as dumped, so the unpatched set is the honest target.
-
-It also has no `sprites_hi`, but it does have `tilemap_hi`.
-
-Horizontal game: set Rotate to None.
+Not shipped. 62 of them exist -- Bubble Symphony, Dungeon Magic, Global
+Champion, Kyukyoku Tiger II, Bust-A-Move Again, Hat Trick Hero '93/'94/'95,
+several prototypes and two bootlegs -- and they all live inside the merged
+ROM zips already required here, so none needs a new ROM. They need an MRA
+each and a game id, and the id field has 64 slots with 37 used.

@@ -60,6 +60,33 @@ MRAs correct.
 
 ---
 
+## Rayforce_20260908.rbf
+
+Build stamp `08154107`. **Use this one.** The earlier bitstreams cannot run
+most of the games below.
+
+- **29 more games run**, taking the core from 6 to 35 of the 38 Taito F3
+  sets. Arkanoid Returns, Grid Seeker, Space Invaders '95, Cleopatra
+  Fortune, Twin Qix, Recalhorn, Quiz Theater, Pop 'n Pop, Gekirindan,
+  Darius Gaiden Extra, Puzzle Bobble 3 and 4, Arabian Magic, Riding Fight,
+  Ring Rage, Land Maker, and the thirteen largest sets including Kaiser
+  Knuckle and Dan-Ku-Ga.
+- **Horizontal games no longer rotate.** Rotating one cost a frame of input
+  latency through MiSTer's framebuffer and showed it at the wrong aspect; a
+  player reported it as lag on Darius Gaiden. The core now decides per game
+  and the OSD's Rotate applies to the vertical ones only.
+- **12-bit colour** for Arabian Magic, Riding Fight and Ring Rage, which
+  store colour differently from every other F3 game.
+- **Sound fixes** for games whose sample ROM is banked differently from Ray
+  Force's: Puzzle Bobble 3 and 4, Land Maker, Kaiser Knuckle, Dan-Ku-Ga,
+  Puchi Carat, Quiz de Hyuuhyuu; and correct banking for Arkanoid Returns,
+  Cleopatra Fortune and Twin Qix.
+- Kirameki Star Road's sound-ROM banking is implemented, but that game still
+  has no MRA and does not run.
+- Known problem, unchanged: some sprite rows drop on Ray Force's zone 2
+  boss, and Darius Gaiden renders some background objects in the wrong
+  colours until the game rewrites its palette.
+
 ## Rayforce_20260907.rbf
 
 Build stamp `07213908`.

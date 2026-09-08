@@ -43,11 +43,20 @@ def md5(path):
 
 
 def shipped():
-    # releases/ only -- releases/experimental/ holds things that do not work
-    # yet and is deliberately not hashed or advertised
-    return sorted(f for f in os.listdir(REL)
-                  if os.path.splitext(f)[1] in WHAT
-                  and os.path.isfile(os.path.join(REL, f)))
+    # releases/ AND releases/experimental/. The experimental folder used to be
+    # excluded as "things that do not work yet", which was true when it held
+    # four MRAs; it now holds 32 that run on hardware, and leaving 32 of the
+    # 39 shipped files unhashed is not a statement about evidence, it is just
+    # a gap in the integrity check.
+    out = []
+    for sub in ("", "experimental"):
+        d = os.path.join(REL, sub) if sub else REL
+        if not os.path.isdir(d):
+            continue
+        for f in sorted(os.listdir(d)):
+            if os.path.splitext(f)[1] in WHAT and os.path.isfile(os.path.join(d, f)):
+                out.append(os.path.join(sub, f) if sub else f)
+    return out
 
 
 def main():
