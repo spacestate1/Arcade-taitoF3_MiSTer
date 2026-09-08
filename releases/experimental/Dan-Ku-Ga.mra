@@ -87,7 +87,7 @@
   </rom>
 
   <!-- Game config (Rayforce.sv "GAME CONFIG"):
-         index 1 = 0xC0, index 2 = 0x05
+         index 1 = 0xC4, index 2 = 0x14
            visarea 0, extend 0, zone injector off
            (so it starts on level 1), game id 35.
          No expectations are measured for this set yet, so it lands on
@@ -97,10 +97,10 @@
          row clamps (rf_selftest.sv:329) until a build gives this game
          its own row. That is the page, not the game. -->
   <rom index="1">
-    <part>C0</part>
+    <part>C4</part>
   </rom>
   <rom index="2">
-    <part>05</part>
+    <part>14</part>
   </rom>
 
   <!-- the 93C46 settings EEPROM: 64 words, saved to config/nvram/<mra>.nvm -->

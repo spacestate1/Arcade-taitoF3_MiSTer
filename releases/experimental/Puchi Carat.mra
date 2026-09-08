@@ -76,7 +76,7 @@
   </rom>
 
   <!-- Game config (Rayforce.sv "GAME CONFIG"):
-         index 1 = 0x43, index 2 = 0x05
+         index 1 = 0x43, index 2 = 0x14
            visarea 3, extend 1, zone injector off
            (so it starts on level 1), game id 33.
          No expectations are measured for this set yet, so it lands on
@@ -89,7 +89,7 @@
     <part>43</part>
   </rom>
   <rom index="2">
-    <part>05</part>
+    <part>14</part>
   </rom>
 
   <!-- the 93C46 settings EEPROM: 64 words, saved to config/nvram/<mra>.nvm -->

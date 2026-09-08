@@ -1067,7 +1067,12 @@ end
 logic cfg_pal12_id;
 always_comb begin
     case (cfg_game)
-        6'd20, 6'd21, 6'd22, 6'd23: cfg_pal12_id = 1'b1;  // reserved for the four
+        // Only the three sets whose ROMs exist. Id 23 was reserved here for
+        // Space Invaders DX and then handed to LAND MAKER, which is not a
+        // 12-bit game -- it rendered in a magenta wash on build 08130419
+        // because of it. spcinvdj gets an id when its ROM turns up; a set
+        // can also ask for 12-bit through MRA index 2 bit [5] without one.
+        6'd20, 6'd21, 6'd22: cfg_pal12_id = 1'b1;
         default:                    cfg_pal12_id = 1'b0;
     endcase
 end

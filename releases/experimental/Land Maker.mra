@@ -61,7 +61,7 @@
   </rom>
 
   <!-- Game config (Rayforce.sv "GAME CONFIG"):
-         index 1 = 0x63, index 2 = 0x02
+         index 1 = 0xE3, index 2 = 0x02
            visarea 3, extend 1, zone injector off
            (so it starts on level 1), game id 23.
          No expectations are measured for this set yet, so it lands on
@@ -71,7 +71,7 @@
          row clamps (rf_selftest.sv:329) until a build gives this game
          its own row. That is the page, not the game. -->
   <rom index="1">
-    <part>63</part>
+    <part>E3</part>
   </rom>
   <rom index="2">
     <part>02</part>

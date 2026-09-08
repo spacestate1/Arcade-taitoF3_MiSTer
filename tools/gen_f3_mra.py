@@ -58,7 +58,36 @@ def sizes(zf):
            {i.filename: i.CRC & 0xFFFFFFFF for i in zf.infolist()}
 
 
+def cfg_bytes(game):
+    """Compute the two MRA config bytes from id / vis / extend / map.
+
+    THESE WERE HAND-COMPUTED ONCE AND NINE OF THIRTEEN WERE WRONG. The id is
+    split {index2[2:0], index1[5], index1[7:6]}, which is easy to get right
+    for ids under 8 and easy to get wrong above -- Land Maker's 23 came out
+    as 21, colliding with Riding Fight, and Top Ranking Stars' 28 as 22,
+    colliding with Ring Rage. Worse, every profile-1 set had cfg_map clear,
+    so the MRA laid its regions out for the 42 MB map while the core read
+    them at 18.5 MB addresses. Nothing catches that but the screen.
+
+    Verified against four MRAs known to work on hardware: Gekirindan 0x87/
+    0x02, Grid Seeker 0xC5/0x01, Arkanoid Returns 0x03/0x01 and Puzzle
+    Bobble 3 0x47/0x01.
+    """
+    i = game["id"]
+    idx1 = ((game["vis"] & 3)
+            | ((0 if game["ext"] else 1) << 2)   # bit 2 asks for NON-extend
+            | (((i >> 2) & 1) << 5)
+            | ((i & 3) << 6))
+    idx2 = (((i >> 3) & 7)
+            | (game.get("map", 0) << 4)          # cfg_map: the 42 MB profile
+            | (game.get("pal12", 0) << 5))       # 12-bit palette override
+    assert (((idx2 & 7) << 3) | (((idx1 >> 5) & 1) << 2) | ((idx1 >> 6) & 3)) == i
+    return idx1, idx2
+
+
 def emit(game, spec, out):
+    game = dict(game)
+    game["cfg1"], game["cfg2"] = cfg_bytes(game)
     # A game may widen a region slot. Ensoniq is the LAST region in the map,
     # so a game using all 8 MB of it simply streams 4 MB more than the rest
     # and every earlier MRA is untouched -- which is the whole reason the
