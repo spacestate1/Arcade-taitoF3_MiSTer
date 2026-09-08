@@ -16,6 +16,116 @@ the board: every page row PASS, and its Audio Ring capture correlates
 the board's sound is MAME's, sample for sample, for the first time.** The story of the night is under "Morning summary" and
 "Overnight plan" below; the video work of 2026-08-27 follows after that.
 
+> **THE SCOREBOARD FOR THIS BUG IS NOW [SPRITE-CORRUPTION.md](SPRITE-CORRUPTION.md).**
+> Every fix and instrument attempted, its verdict, what is ruled out and by
+> what evidence, and the dead ends. Add a row there before starting anything --
+> several ideas were tried twice because nothing collected them in one place.
+> This file remains the story in date order.
+>
+> **ROOT CAUSE FOUND 2026-09-08 — read SPRITE-CORRUPTION.md item 0.** The
+> sprite record store `rec[0:1][0:NREC-1]` (`NREC = 12288`, 24,576 words) was
+> built by Quartus as a **16,384-word RAM** (`rec_rtl_0: WIDTHAD 14, NUMWORDS
+> 16384`, silently). Bank 1's records from 4,096 up alias onto bank 0's
+> 0..8191, so any frame with more than 4,096 records clobbers the other bank:
+> one parity draws a stale/mixed list, the other is live -- the "two layers,
+> offset, flickering" reported from day one. The threshold is a record COUNT:
+> attract ~3-4k clean, continue screen 4,587 slightly wrong, boss 10,836
+> severe. At the committed `NREC = 10240` the threshold was 6,144 (why GitHub
+> "had fewer streaks"); raising it to 12,288 lowered the threshold (why it
+> "got worse when the core expanded"). Verilator models all 24,576 words, so
+> every bench passed. **Fix: `NREC = 8192`** -- 2 x 8192 = 16,384 = exactly
+> the RAM Quartus builds. 24,576 real words would cost +256 MLABs (= LABs) on
+> a device at 4,185/4,191: the truncation was why it fit. **Deployed as
+> `07213908` and VERIFIED: FOLDSEQ constant on both parities, rf_flicker one
+> state, player: "that fixed almost all of it."** Residue: ~2,600 dropped
+> rows a frame at the boss (`SPR REC : DROP` saturates there). **Lesson, for the second time:** after
+> any memory change read the RAM inference lines (`NUMWORDS`, `WIDTHAD`) in
+> the map log before trusting a passing bench.
+>
+> Older callout follows:
+> **READ THIS FIRST (2026-09-07). THREE THEORIES TESTED AND KILLED, AND THE
+> SEARCH SPACE IS MUCH SMALLER.** Everything about the sprite corruption now
+> lives in **[SPRITE-CORRUPTION.md](SPRITE-CORRUPTION.md)** -- the measured
+> symptom, every attempt with its verdict, the dead ends, and what is open.
+> Read that first; this file is the story in date order.
+>
+> The day's outcome in short:
+>
+> 1. **The corruption was captured**, not just described: two states alternating
+>    on a STATIC screen, byte-identical run to run, differing by 10,967 pixels,
+>    scanline-structured (`screenshots/paused_cmp/`). It appears on the CONTINUE
+>    screen at near-zero load, which **contradicts the throughput theory** that
+>    README item 1 still concludes with.
+> 2. **Rotation's Avalon violation** -- `screen_rotate` pulses its DDR3 write for
+>    one cycle and never reads `DDRAM_BUSY` (= `waitrequest`), so it drops a
+>    pixel whenever the port is busy. Real, provable, fixed with a write FIFO in
+>    `rf_ddr_arb`, and **NOT this bug**: 0 stalls across 210 gameplay samples.
+>    I wrote it up here as "ROOT CAUSE FOUND" before the board had a say. It
+>    was not.
+> 3. **Sprite RAM tearing** -- the walk reads sprite RAM with no snapshot while
+>    the CPU can write it, and neither MAME nor the bench can reproduce that by
+>    construction. **Ruled out**: `SPRTEAR WR:FRM` = one boot frame, never again.
+> 4. **Abandoned-line residue** and **multi-write RAM inference** -- both real
+>    shapes, both checked, both ruled out. See the register.
+>
+> **Where it stands:** every instrument on the sprite side reads clean while the
+> picture is visibly wrong. The player reports the **committed** build has fewer
+> streaks but not none, so there is a base bug in committed code plus amplifiers
+> among the three uncommitted functional changes (lookahead skip, pen mask
+> widening, tile-row cache). Build `07154217` is on the board with the lookahead
+> skip switched off (`LK_SKIP`), awaiting the player's comparison.
+>
+> **Note the dates.** The last commit is 2026-08-31; everything since is
+> uncommitted, including every document written this week.
+>
+> **Read this first (2026-09-04, 08:45).** `04074618` is on the board under
+> `releases/experimental/Ray Force (zone 2).mra`, timing met (+0.266 ns), and it
+> carries three new things: the **zone injector** (coin+start opens at zone 2),
+> the **stale-line detector** and the **fetch self-check**. Read off the board at
+> the title screen, both new instruments are zero, `SPR REC` shows 0 dropped, and
+> `SPRLINE` reads **0 late with a longest line of 11,306 clocks**. Read that row
+> carefully: the zero means the LATE COUNTER IS NOW HONEST, not that the draw
+> fits its budget. 11,306 clocks is still far over the 3,456-clock budget.
+>
+> **UPDATE 09:05: the injector is CONFIRMED ON HARDWARE, and remote input
+> works.** A virtual GAMEPAD coined up and started a game, and the board drew
+> `AREA 2`. Both firsts. What is still needed from a human is PLAY: something
+> has to survive zone 2 to reach the boss, which is where the corruption is.
+> See "Remote input solved" below.
+>
+> Everything operational -- the exact commands, the page field layouts, the
+> unexplained measurements and the dead ends -- is under "2026-09-04 morning"
+> below.
+>
+> Older callout follows:
+> **Read this first (2026-09-03). THE PALETTE IS PROVED CORRECT, RAY FORCE'S
+> HEAVY LINES ARE PIXEL-BOUND, AND THE BOARD'S OSD IS UNREACHABLE.** Four
+> builds overnight; **`02230245` is deployed** (cache + quad-skip + MRA-driven
+> UART mode, timing met +0.064 ns). Three things matter for whoever picks
+> this up:
+>
+> 1. **Darius Gaiden's palette content is CORRECT** -- 1023/1024 entries
+>    identical to MAME's `dg5070` dump, captured off the board through the
+>    write ring. The CPU, the palette write path and the index composition
+>    are all exonerated. What is left is the PEN, i.e. the sprite graphics
+>    fetch.
+> 2. **Ray Force's heavy lines are PIXEL-throughput-bound, not fetch-bound.**
+>    784 rows x 16 px = 12,544 pixels in 14,236 clocks = 1.135 clocks/pixel
+>    against a 3,456-clock budget. No fetch improvement can fix that; it
+>    needs ~4 px/clock. The cache bought 3 %, the quad-skip another 3 %.
+> 3. **`config/Rayforce.CFG` does NOT reach the status word** and pad input
+>    is dead, so **no OSD option is reachable on this board**. The MRA config
+>    byte does work and now drives `uart_mode` (index 2 bits [7:6]). That is
+>    the only way in -- use `releases/experimental/Darius Gaiden (write
+>    ring).mra`.
+>
+> **NOT established:** that the tile-row cache fixes the Darius tower
+> colours. One Zone A frame with the cache renders steel towers and two
+> without it render red, but those two are from a build differing by more
+> than the cache, and 164 samples on the proper control build never reached
+> the Zone A demo. Treat it as suggestive only. See the section below.
+>
+> Older callout follows:
 > **Read this first (2026-08-31). THE SPRITE SPLITS ARE FIXED.** Build
 > `31083249` (commit 17c5bfa) renders solid sprites in-game -- verified by
 > the HPS fill-probe (inject solid data into the DDR3 framebuffer, photograph
@@ -37,7 +147,698 @@ the board's sound is MAME's, sample for sample, for the first time.** The story 
 > pass criterion, are in the tree and **not yet built**. See "The board's
 > verdict on ch7" immediately below.
 
-**The board is at 172.17.1.164** (not .175 — that address is dead).
+**The board is on DHCP and answers to `MiSTer.lan`.** The 172.17.1.164 hardcoded in `tools/rf_deploy.py` and `tools/rf_screenshot.py` is stale; `RF_HOST=MiSTer.lan` overrides it and every tool call below assumes that.
+
+---
+
+## 2026-09-04 morning — Session handoff, and the board's own verdict on `04074618`
+
+Work moved from session `b5` to session `2e` at 08:45. `b5` released the build
+slot and the board; nothing was armed (no builds, watches, cron or loops). The
+operational knowledge below lived only in that session and in a tmpfs
+scratchpad that will not survive a reboot, so it is written down here.
+
+### First readings from both new instruments -- and why they prove little yet
+
+A 200-second UART capture across a scripted play session on `04074618`:
+
+```
+STALELN:AGE:CNT  4A020001   line 74, 2 frames behind, count 1
+SPRFETCH:ROWMAX  ...0310    fetch_bad 00 on EVERY page
+SPRLINE : LATE   26C60000   longest line 9,926, 0 late
+SPR REC : DROP   19750000   peak 6,517 records, 0 dropped
+```
+
+**The single stale line is a BOOT ARTIFACT, not a gameplay event.** It reads
+`4A020001` on the FIRST page of the capture and never changes again through 200
+seconds. At core load the framebuffer holds no previous frame, so the first
+verified line's tag has nothing consistent to compare against and scores one
+hit. Line 0 is exempt from the check; line 74 is not. **Count 1 that never
+increments is the signature of a startup hit** -- the same shape as the benign
+`PIVOT WR FAIL` on Elevator Action Returns. Treat any future reading as "count
+above 1", and consider exempting the first frame after reset in the next build.
+
+**The run never reached the failing regime, so nothing here is evidence about
+the bug.** Peak records 6,517 and longest line 9,926 are ATTRACT-level numbers;
+the boss reaches 10,836 records and 15,014 clocks. A screenshot at t+120 s shows
+a starfield with one explosion on it. The scripted pad input fires and jiggles
+the stick, which does not keep a ship alive or fill a screen. **A script that
+presses buttons is not a player.**
+
+So: the fetch self-check reads clean, but only under light load, which is weak.
+The stale detector has still never been read during a genuinely busy scene.
+Both remain unproven in the regime that matters.
+
+### Finding the end of zone 2: partial
+
+Zone 2 in MAME with the injector runs from the start to the zone-3 transition,
+but **an unattended ship dies early**: `0x402317`/`0x402319` (the gameplay zone
+copies, which read 3 while zone 2 is being played) drop to 0 by frame +2100, so
+only ~1,800 frames of that run were real gameplay and everything after is game
+over and attract. The zone advancing to 3 at +5,400 was the ATTRACT DEMO, not a
+completed stage.
+
+Consequence: the RAM dumps from that run are contaminated and **no clean
+stage-progress counter was found in them** -- no 16-bit word rises at every
+sample. Redo it holding a lives byte so the run is real gameplay throughout,
+then diff. Candidate lives bytes from the decreasing-counter scan include
+`0x4016A0` (9 -> 0 by frame +1,200). Nothing is confirmed.
+
+### THE REFRAME: it is LOAD, not the boss (user, 2026-09-04)
+
+**The player reports the corruption appears whenever the screen gets busy --
+big explosions and the like -- and that the zone 2 boss simply has a LOT of
+it.** This is the most important statement about the bug so far and it
+reorganises everything above.
+
+What it means:
+
+1. **The defect is a DEADLINE problem, not boss-specific content.** Every
+   attempt so far to reproduce it has hunted for the boss's particular sprites.
+   Wrong target: the boss is just the heaviest scene, not a special one. Any
+   scene dense enough will do, which is why level 1 "cleared up" after the
+   video fixes -- lighter load, not a different code path.
+2. **It fits the stale-line theory exactly, and explains the mechanism.** Under
+   heavy load the sprite draw does not finish the frame; lines it never reached
+   keep the PREVIOUS frame's pixels and their matching CRC, so they verify and
+   are displayed one frame behind their neighbours. That is precisely "two
+   layers, offset, flickering", and it should scale smoothly with busyness --
+   which is what the player describes.
+3. **It explains why no bench reproduces it.** The benches render SINGLE frames
+   and check them pixel by pixel. A deadline overrun is a property of sustained
+   load across consecutive frames. A single frame, however heavy, cannot show
+   it, and the heaviest bench frame is 344 rows against the board's 784.
+4. **It re-points the fix at throughput, which was already measured.**
+   `rf_video_spr` advances ONE pixel per clock whether or not that pixel draws.
+   The worst line needs ~4 pixels per clock to fit. Fetch bandwidth, the cache
+   and the quad/lookahead skips were all aimed slightly off-target; they reduce
+   work but do not raise the pixel rate.
+5. **It makes the bug reproducible on demand**, now that remote input works: a
+   busy scene is enough, so no one has to play to a boss to test a build.
+
+**Corollary that needs checking:** if lines are being missed on a deadline,
+`SPRLINE : LATE` ought to fire too, and it currently reads 0. Either the draw
+window is longer than one frame (so "late" is not the right predicate), or the
+miss fix that removed the phantom count now under-reports. Do not treat that
+zero as proof of health until it has been read during a genuinely busy scene.
+
+### Remote input solved: a virtual GAMEPAD, not a virtual keyboard
+
+**"Board input is dead" was wrong, and the fix is small.** `tools/rf_pad_run.py`
+creates a uinput device that mirrors the attached pad exactly -- name
+`Microsoft X-Box One pad`, bustype 3, vendor `0x045e`, product `0x02d1`,
+version `0x0101`, the same eleven `BTN_*` codes and eight `ABS` axes. MiSTer
+applies its built-in gamepad defaults to it. `BTN_SELECT` inserted a coin and
+`BTN_START` started a game, **both on the first attempt**, verified by
+screenshots reading `CREDIT 01` and then `AREA 2`.
+
+Why the old tool failed: there are **no `.map` files in `/media/fat/config`**,
+so nothing maps keyboard keys for this core -- the real pad works purely on
+MiSTer's defaults for a *recognised gamepad*. `tools/rf_input.py` presents a
+plain keyboard with an invented vendor `0x1234`, so MiSTer has no mapping to
+apply and silently drops every key. That is the entire "input is dead" story,
+and it cost this project a documented dead end plus a wrong generalisation
+(see the callout of 2026-09-03).
+
+`rf_input.py`'s ordering rule was right and still applies: MiSTer enumerates
+input devices when a core loads, so **create the device, THEN `load_core`, then
+press**. The device also disappears when the creating process exits, so hold it
+open for the whole session.
+
+**This unlocks headless in-game testing** -- coin, start, menus, a named scene,
+a screenshot at a chosen instant -- which every capture campaign in this project
+so far has had to work around.
+
+### The zone injector: CONFIRMED on hardware
+
+Coin + start on `04074618` under `Ray Force (zone 2).mra` drew **`AREA 2 -- THE
+GRAVITY OF...`**. The bus-level substitution fires on real hardware exactly as it
+did in MAME. Screenshots in `screenshots/pad/`.
+
+Counters sampled during that Area 2 run, still clean:
+
+```
+SPR REC : DROP  0BE80000    3,048 records, 0 dropped
+SPRLINE : LATE  23190000    longest line 8,985, 0 late
+SPRFETCH:ROWMAX 005802D0    fetch_bad 00, longest fetch 88, rows 720
+STALELN:AGE:CNT 00000000
+```
+
+**That is the start of zone 2, NOT the boss**, and the ship was not being
+flown, so this says nothing yet about the corruption. Reaching the boss still
+needs someone to play -- or an input script good enough to survive, which is
+now at least possible.
+
+### `04074618` is on the board and both new instruments read clean at the title
+
+Read off the board over UART at 08:44, not taken on trust:
+
+```
+BUILD           04074618
+ROM CHECKSUM    77E1C279  PASS
+SPR REC : DROP  19750000  PASS   6,517 records, 0 dropped
+SPRLINE : LATE  2C2A0000  PASS   longest line 11,306 clocks, 0 late
+SPRFETCH:ROWMAX 005B0310  PASS   fetch_bad 00, longest fetch 91, rows 784
+STALELN:AGE:CNT 00000000  PASS
+```
+
+**Do not read `SPRLINE : LATE`'s zero as a throughput win.** It is two separate
+facts, and conflating them is an easy mistake to make:
+
+1. **The zero is a counter fix, not a fit.** The late count climbed exactly 28
+   per page pass on every build A-E regardless of line time (63, 83 and 94
+   consecutive samples). `rf_spr_fb` cleared `hit_seen` at `frame_start` while
+   the mixer was mid-line, scoring **one phantom miss per frame**, and a page
+   pass is 28 frames. Build F removed that clear and the rate went to 0 across
+   104 samples with the RTL otherwise unchanged. The row is now honest. The draw
+   still does NOT fit: 11,306 clocks in attract and 9,497-10,876 at the boss,
+   against a 3,456-clock budget.
+2. **The longest-line improvement is the lookahead skip**, 14,676 down to
+   ~9,500-11,300. The transparent-quad skip was a strict subset of it and has
+   been REMOVED from the RTL -- do not credit it. The tile-row cache measured
+   3 % on that line, though it is worth much more on fetch-bound lines.
+
+`SPRLINE`'s peak-hold also starts at frame 16, so a fresh board reads clean
+regardless.
+
+**Both new instruments read zero, which is the expected null result**: the
+corruption is at the zone 2 boss and the board is at the title screen. Their
+positive behaviour is still untested. THE NEXT STEP IS UNCHANGED AND IT NEEDS A
+HUMAN: coin up on the pad, start a game, confirm it opens at zone 2 (expect blue
+fighter formations, no asteroid field), play to the boss, then read the page.
+
+### The board commands, verbatim
+
+`RF_HOST=MiSTer.lan` is required: `rf_deploy.py` and `rf_screenshot.py` hardcode
+a dead `172.17.1.164`. Use `.venv/bin/python` -- paramiko is only in the venv,
+while numpy and PIL are only in the system `python3`.
+
+```bash
+# self-test page (rf_uart.py already defaults to MiSTer.lan)
+.venv/bin/python tools/rf_uart.py -t 12 -o page.txt
+grep -oE '^(BUILD|STALELN:AGE:CNT|SPRFETCH:ROWMAX|SPR REC : DROP|SPRLINE : LATE) +[0-9A-F]{8}' page.txt
+
+# screenshot burst -> screenshots/<tag>/
+RF_HOST=MiSTer.lan .venv/bin/python tools/rf_grab.py <tag> [n]
+```
+
+Page field layouts, which are not otherwise written down:
+
+| row | packing |
+|---|---|
+| `STALELN:AGE:CNT` | {last stale line[7:0], frames behind[7:0], count[15:0]} |
+| `SPRFETCH:ROWMAX` | {fetch_bad sat8, longest fetch sat8, rows on line[15:0]} |
+| `SPR REC : DROP` | {records built[15:0], rows dropped[15:0]} |
+| `SPRLINE : LATE` | {longest line clocks[15:0], late lines[15:0]} |
+| `BUILD` | build stamp, ddhhmmss |
+
+Deploying takes a snippet rather than a script, and the `rm -f` matters --
+**MiSTer loads the highest-sorting `Rayforce_*.rbf`, and a stale name has beaten
+a fresh upload twice**:
+
+```bash
+RF_HOST=MiSTer.lan .venv/bin/python - <<'PY'
+import sys,time; sys.path.insert(0,'tools'); import rf_deploy as d
+c=d.connect(); s=c.open_sftp()
+d.run(c,"rm -f /media/fat/_Arcade/cores/Rayforce_*.rbf")
+s.put("builds/<file>.rbf","/media/fat/_Arcade/cores/Rayforce_20260904_0007.rbf"); s.close()
+d.run(c,'echo "load_core /media/fat/_Arcade/Ray Force (zone 2).mra" > /dev/MiSTer_cmd')
+time.sleep(55); print(d.run(c,"cat /tmp/CORENAME")); c.close()
+PY
+```
+
+Then confirm with the UART `BUILD` row. **Copy `output_files/Rayforce.rbf` into
+`builds/` before the next `./build.sh`** -- it wipes `output_files/`. Use
+`./build.sh`, never `build_seeds.sh` (11 G caps). `tools/shot.py` is broken for
+anything but Ray Force: hardcoded directory, and it deletes first.
+
+### Measurements that are real but unexplained
+
+- **`rows on line` reads 784 within seconds of boot in attract**, yet MAME's
+  heaviest attract line is 344 rows and the boss-2 dumps are 91. The RTL counter
+  does not measure what the model calls rows on a line, and nobody found out
+  what it does count. **Do not compare that field against dumps.**
+- **The stale detector's calibration is unexplained.** Expecting the tag to
+  equal `fnum` flagged ~781 lines a run; expecting `fnum-1` flagged ~256. The
+  relation partitions lines rather than separating right from wrong, which is
+  why the shipped detector compares each line's tag against the previous
+  verified line's instead. Why the split is ~256/~781 is not understood.
+- **The zone injector intercepts two writes, not one.** `PC 004810` is the
+  new-game init, but `PC 01388C` also stores 1 to the same word two frames
+  later. The bus swap filters on data == 1, so it substitutes both. Harmless in
+  MAME. Zone clears write 2, 3, 4 and pass through untouched. Neighbouring
+  words: `0x402311` goes 0 -> 1 at game start (lives, unverified);
+  `0x402317`/`0x402319` are gameplay-only zone copies, 0 in attract.
+- **One UART grab came back completely empty**, once, just before a redeploy. It
+  was never explained. If the page reads empty, retry before concluding
+  anything from it.
+- Pre-existing and not caused by any of this work: `sim/` `ear-spr-line-all`
+  frame 4200 shows 8 used-flag differences with or without every change above.
+
+### Dead ends: do not spend a second cycle on these
+
+- Poking the zone word once a frame cannot change the stage. The stage loader
+  consumes it in the same frame. Proved: 0.0 % pixel difference.
+- "Sprite fetches starve the playfield builder" was a misreading of `pipetb`
+  `argv[5]`, which is the PLAYFIELD latency. Sprite latency is `F3_SPS_LAT`.
+- `NREC 13312` does not fit: `Error 11802`, memory placement. ALM headroom is
+  irrelevant to it -- the 12,288 build that followed had 2,567 ALMs spare.
+- "The tile-row cache fixes the Darius tower colours" has no control. 164
+  samples across three capture runs never reached the Zone A demo.
+- HDMI PLL misses of -0.1 to -0.5 ns are fitter variance, not a real path. Seed
+  8 has closed that clock twice; seed 11 did not.
+
+### The rule this project keeps relearning
+
+**The player's description is the primary instrument.** Two layers, offset,
+flickering, stray vertical lines on the LEFT, green specks outside the main
+lines. The board is rotated with the HUD down the left, so landscape-left is the
+TOP of the native frame. Session `b5` twice overrode the user's direct
+observation with a metric and was wrong both times: once removing the tile-row
+cache the player had said improved level 1, once declaring board input dead when
+the player was using a pad the whole time.
+
+---
+
+## 2026-09-03/04 — The boss: a real overflow fixed, the visible bug still open, and the instrument that can finally see it
+
+**Deployed: `03213829` (H)** -- cache + `NREC 12288` + trimmed debug, timing
+met on every clock (HDMI +0.232, core +1.59/+1.77), 2,191 ALMs spare.
+**Building: `03224907`** -- the same plus a stale-line detector (below).
+
+### What the player found that no bench ever had
+
+The player reached the **Zone 2 boss on the board** and the page read:
+
+```
+SPR REC : DROP    2A540286    10,836 records built, 646 DROPPED
+SPRLINE : LATE    3AA68679    longest line 15,014, 34,425 late
+```
+
+`NREC` was 10,240. **The store overflowed and threw away 646 sprite rows.**
+`1d49395` had cut it from 12,288 on attract-mode peaks of 6,517/8,645 -- no
+dump, capture or bench in this project had ever contained a boss. Even the
+344-row MAME frame added the night before reaches only 2,190 records.
+
+Raised to 12,288 (13,312 does not fit: `Error 11802`, memory placement, NOT
+ALMs -- see RESOURCES.md). Confirmed on hardware: **8,957 records, 0
+dropped.** That fix is real and stays.
+
+**But the picture did not change.** Dropped rows were never the visible
+defect. The player's description, which I should have weighted over my own
+metrics from the start: *two layers, offset, flickering, stray vertical lines
+on the left, green specks outside the main lines.* The board is rotated with
+the HUD down the left, so landscape-left is the TOP of the native frame.
+
+### Two mistakes worth recording
+
+1. **I removed the tile-row cache** on the grounds that its benefit was
+   unverified (it bought 3 % on the worst-line metric). The player had said
+   the earlier video fixes cleared up level 1. The picture got worse with
+   the cache out and I put it back. A player's direct observation beat my
+   metric; I should have treated it as data.
+2. **I tied off the scandoubler FX assuming the OSD was unreachable.** It
+   was reachable -- the player was using a pad the whole time. My "board
+   input is dead" came from `rf_input.py`'s virtual keyboard being ignored,
+   and I generalised it to all input without checking. The FX stay off for
+   now because they pay for the record store; restoring them is the next
+   cheap build (~1,700 ALMs, no M10K, 2,191 spare).
+
+### What the bench cannot see, and the instrument that can
+
+Every path has now been exercised on the ACTUAL boss content (dumps from the
+player's own savestates, model 100.00 % identical to MAME once the rotation
+is undone): the RTL renders it **71680/71680 at the board's 87-clock sprite
+latency and stays perfect to 120**, and cannot be made to fail even with the
+DDR3 framebuffer slowed to 600 clocks at 50 % busy. The corruption is in
+something simulation does not model.
+
+The framebuffer's per-line CRC proves a line's CONTENT round-tripped -- but a
+line the draw never rewrote this frame still carries last frame's pixels AND
+last frame's matching CRC, so it verifies and is shown one frame behind its
+neighbours. **Present, valid, wrong frame.** `miss` fires only when a line is
+absent; nothing could see this. It is exactly "two layers, offset".
+
+So the CRC word gives its low 8 bits to a **frame tag** stamped at write, and
+the reader flags a line whose tag differs from the previous verified line's
+(a frame drawn in one pass has one tag on every line; line 0 is exempt). A
+fixed expectation against the frame counter does NOT work -- both `fnum` and
+`fnum-1` flag a whole population of correct lines, because the draw and the
+readout straddle `frame_start` differently per line. The row is
+`STALELN:AGE:CNT` = {last stale line, frames behind its neighbour, count}.
+It reads `00000000` on three pixel-perfect frames in the bench; its positive
+behaviour is untested until the board reads it at the boss.
+
+### Zone injector: reaching the zone 2 boss on demand (built and DEPLOYED as `04074618`)
+
+Save states MAME-style are a large project (no `ss_*` bus in this `sys/`, two
+VHDL 68k's with no state export, ~22 RAMs). Instead: **start the game at
+zone 2.** Found in MAME with `tools/mame/`: the zone word is `0x402312/13`,
+written at new-game init by **ROM 0x004810 as the constant 1** and consumed
+by the stage loader in the same frame -- so holding the byte once a frame did
+nothing (proved: 0.0 % pixel difference), while substituting the value AT the
+write loaded zone 2 (44 % differs). The core does the same at bus level in
+`rf_main`: a 16-bit CPU store of `0x0001` to RAM word `0x1189` (0x402312 and
+its mirror) is rewritten to `{8'h00, zone}` while `zone_inj != 0`. Zone clears
+write 2,3,4 and pass; game over -> new game -> 1 -> substituted again.
+Armed by MRA index 1 bits **[4:3]** (spare): 1..3 = zone 2..4.
+`releases/experimental/Ray Force (zone 2).mra` carries `08`.
+
+### The fetch self-check: BUILT, not queued
+
+If STALELN reads zero at the boss, the two-layers theory dies and the specks
+point at the FETCH. Every 16th cache hit is re-fetched from SDRAM and compared
+against the cached copy -- ROM is immutable, so any difference is fetch
+corruption, counted on the page. **This shipped**: it is in `rf_spr_gfx_bus`,
+wired through `rf_video_spr` (`fetch_bad`, summed over both buses) and
+`rf_video_pipe` (sat8 into the top byte of `SPRFETCH:ROWMAX`), benched
+pixel-identical, and is live in builds `03232713` and `04074618`. It reads
+`00` in simulation because the SDRAM model is exact, so **the board is its
+only judge** -- as it is for the stale detector. Neither instrument has a
+positive control.
+
+### Debug removed to make room
+
+Write ring 2048 -> 512 entries (~8 M10Ks, still a full trigger window); the
+per-line fold instrument and its M10K (job done); `SPIN:TWRA:TWRB` row given
+to `STALELN:AGE:CNT`. `RESOURCES.md` now documents the whole budget.
+
+---
+
+## 2026-09-02/03 — Four builds overnight: the palette exonerated, the Ray Force bottleneck identified, and the OSD found unreachable
+
+**Deployed: `02230245` (build D).** Timing met, worst slack +0.064 ns, ALMs
+97 %, LABs 4,183/4,191, M10K 549/553.
+
+### The builds
+
+| | stamp | contents | result |
+|---|---|---|---|
+| A | `02205428` | penmask 5->6 bit fix, triggered write ring | timing met +0.013 |
+| B | `02214052` | + sprite tile-row cache | HDMI PLL -0.514 (seed 5) |
+| C | `02222040` | + MRA-driven `uart_mode`, ring arms late, **seed 8** | timing met +0.124 |
+| D | `02230245` | + transparent-quad skip | timing met +0.064 |
+
+All four are in `builds/`. Seed 8 is the one that closes the framework HDMI
+clock: the same design missed by -0.514 on seed 5 and makes +0.124 on seed 8,
+which is the third time that clock has proved to be fitter variance rather
+than a real path. **Both core clocks were healthy throughout** (clk_sys
++1.15 to +1.24, clk_ram +1.13 to +1.16); only the framework clock ever moved.
+
+### The palette is correct, and this is reference-based rather than inferred
+
+The write ring captured a contiguous 1024-entry palette burst off the board,
+reconstructed to RGB (`word0[7:0]`=R, `word1[15:8]`=G, `word1[7:0]`=B, the
+order `rf_video_mix` reads) and diffed against MAME's `paletteram.bin`:
+
+```
+vs dump/dg5070   1023/1024 identical
+vs dump/dg864     1012/1024      <- a DIFFERENT SCENE, not an error
+```
+
+The single differing entry, `0x129E`, is animated and differs between every
+pair of MAME frames too. **So the CPU writes the right palette data.** With
+the index composition already matching the model (`base|pen`,
+f3_render.py:781 against rf_video_spr.sv:929/978), the palette path,
+the CPU and the mixer are all cleared. **What remains is the PEN** -- the
+sprite graphics data itself, i.e. the fetch path.
+
+Note this also kills the palette-copy-queue theory properly. An earlier
+14-second capture showed `twr_a_cnt`/`twr_b_cnt` parked at 160/216 and that
+was read as "frozen, so the copy ran once". They actually **saturate at
+0xFF**: the writes are continuous and the window was simply too short. A
+counter that has not moved in 14 seconds has not been shown to be frozen.
+
+### Ray Force's heavy lines are pixel-bound, and that is the whole story
+
+Measured on hardware, Ray Force attract:
+
+```
+worst sprite line   14,676 clocks     budget 3,456
+rows on that line      784
+longest single fetch      87 clocks   (22 in the bench)
+late lines          climbing ~56/s, never settling
+records dropped            0
+```
+
+784 rows x 16 pixels = 12,544 pixels in 14,236 clocks = **1.135 clocks per
+pixel**. `rf_video_spr.sv`'s `dr_xx` advances one pixel per clock, sixteen a
+row, whether or not the pixel draws anything. To fit the budget needs 0.276
+clocks/pixel, i.e. **~4 pixels per clock**. Fetch bandwidth cannot touch it.
+
+Two fixes went in and both were aimed at the wrong bottleneck for these
+lines:
+
+```
+                          worst line   note
+baseline                     14,676
++ tile-row cache             14,236    3 %
++ transparent-quad skip      13,781    3 %   (6 % cumulative)
+```
+
+**The cache is still worth having** -- in simulation it cuts a *fetch-bound*
+line by 49 % at board-like latency (6,493 -> 3,325 clocks at LAT=90) and
+drops latency sensitivity 3.4x, matching the offline prediction exactly. It
+just is not what breaks a boss line. The benches never showed this because
+their heaviest dumped line is 114 rows (fetch-dominated) while the board's is
+784 (pixel-dominated): **no bench in this tree reproduces the failing
+regime.**
+
+### The tile-row cache (rf_spr_gfx_bus)
+
+256 sets, direct mapped, one per fetch bus. Direct mapped because it reaches
+the fully-associative bound on every frame measured, and 256 deep because an
+M10K is width-limited -- a 96-bit memory costs three blocks whatever its
+depth, so a shallower cache wastes them. Costs 8 M10Ks total.
+
+It is the safest cache that can be built here: **sprite graphics live in ROM
+and never change**, so there is no invalidation, no coherency and no frame
+boundary to get wrong -- the failure mode this project keeps hitting. The
+only state needing a clear is the valid bits, once, at reset (256 cycles,
+`busy` held).
+
+Verified transparent across the whole suite: `pipe`, `spr`, `mix`,
+`spr-line`, `spr-ghost`, `spr-all`, `ear-mix`, `line`, `pf`, `pipe-lat`, and
+`mix-all` at **20/20 frames / 1,433,600 pixels identical to MAME**.
+
+### The OSD is unreachable, and the MRA config byte is the way in
+
+`config/Rayforce.CFG` does **not** reach the core's status word. Tested end
+to end on `02205428`: wrote byte 0 = `0x20` (UART Debug = Write Ring) and
+byte 1 bit 6 (Flip Screen), reloaded with `load_core`, read the file back and
+confirmed it held `2050`. The UART kept emitting the self-test page and the
+screenshot came back the right way up. **No status bit arrived.** With pad
+input also dead (`tools/rf_input.py` is enumerated and ignored), no OSD
+option is reachable on this board at all.
+
+MRA config bytes *do* arrive -- the board picks its game id, visarea and
+extend from them. So `uart_mode` now takes **index 2 bits [7:6]** when
+non-zero and falls back to `status[5:4]` otherwise. No MRA written before
+tonight carries an index-2 region, so none change meaning.
+`releases/experimental/Darius Gaiden (write ring).mra` selects Write Ring;
+that is how the 17,994-write palette capture happened.
+
+### A latent bug fixed: the pen mask was one bit too narrow
+
+`rf_video_spr_list.sv:92` assigned a 6-bit expression into a 5-bit port:
+
+```
+output logic [4:0] o_penmask;              // too narrow
+assign o_penmask = {extra, 4'h0} | 5'h0F;  // {2 bits, 4 bits} = 6 bits
+```
+
+MAME's mask is `(extra_planes << 4) | 0x0F` with `extra_planes` 0..3, so it
+reaches `0x3F`, and F3 sprite graphics are 6bpp. The top bit was dropped:
+`extra=2` produced `0x0F` instead of `0x2F` and `extra=3` produced `0x1F`
+instead of `0x3F`, masking away the two upper colour planes. Widened to 6
+bits through `o_penmask`, `wk_penmask`, `penmask_r`, `dr_pen` and both
+comparisons.
+
+**Latent, not the tower bug.** Every one of the 150+ dumps in this tree uses
+`extra` 0 or 1, which fit in five bits, so no bench covers it and no shipped
+game shows it. It will bite the first F3 game that uses the upper planes.
+
+### What is NOT established: that the cache fixes the Darius colours
+
+One confirmed Zone A frame **with** the cache renders blue-grey steel towers;
+two confirmed Zone A frames on `02193638` **without** it render red. But
+`02193638` differs from the cache build by more than the cache, so the
+control needed was build A (penmask fix, no cache) -- and **164 samples
+across three capture runs never reached the Zone A demo**, so there is no
+matched control. With board input dead it cannot be forced either.
+
+The screenshots are real; the causal claim is not. Note also that the
+aggregate metric used at first ("0.3 % red-ramp with the cache against 22 %
+without") was comparing capture sets that mostly did not contain Zone A at
+all -- the same class of error as the two instruments that measured their own
+artifacts. **A scene-blind aggregate over an attract loop is not evidence.**
+
+### Process rule, learned the hard way
+
+**Do not edit RTL while a Quartus build is running.** Sources are read during
+Analysis & Synthesis (~6 minutes) and an edit landing inside that window
+leaves it unknowable what the bitstream contains: build C's
+`rf_video_spr.sv` was written at 22:25:24 with synthesis finishing at
+22:27:20, and the reports cannot settle it -- internal wire names
+(`cfg_uart`, `dr_skip4`) do not appear in `map.rpt` or `fit.rpt` at all, so
+grepping for them proves nothing either way. Wait for `Analysis & Synthesis
+was successful` in `/tmp/rayforce_build_progress.log`, or stage the change in
+a scratch copy.
+
+Also: **`build_seeds.sh` is stale and hazardous.** It still uses
+`MemoryHigh=11G MemoryMax=11G`, the settings that got builds killed. Set
+`SEED` in `Rayforce.qsf` and go through `build.sh`, which carries the correct
+8G/9G caps. Builds actually peak **7.6-7.8 GB** (from the systemd scope
+accounting in the journal), not the ~4.5 GB previously recorded, and take
+**38-43 minutes**. The machine has 15 GB and 512 MB of swap; a browser at a
+7.3 GB peak alongside a build is what locked it up on 2026-09-02 at 18:24 and
+cost a build at 29 minutes in.
+
+### Open, in the order worth attacking
+
+1. **Ray Force: multi-pixel-per-clock draw.** The only thing that fixes a
+   784-row line. Touches the write path (`u_lbuf`, 16-bit single-write-port),
+   the DDR3 packer's read side (`w_acc <= {lb_q, ...}`, also one pixel a
+   clock) and the fold diagnostics. **Beware:** a multi-write line buffer is
+   exactly the inference trap that produced the sprite splits, and a 2-pixel
+   word only aligns at 1:1 zoom. Develop it against the benches and build
+   only once simulation is clean.
+2. **The Darius pen, i.e. the sprite gfx fetch.** Everything else in that
+   path is now cleared by measurement. Suspects: `rf_spr_ch_share`'s own
+   header warns that re-granting a plane double-toggles its completion and
+   "permanently desyncs the edge detector"; and every clk_sys<->clk_ram path
+   is `set_clock_groups -asynchronous`, i.e. wholly unconstrained, with
+   `rf_spr_gfx_bus` admitting its data capture "passed or failed by fitter
+   seed" at two sync stages.
+3. **A controlled Darius A/B**, which needs a way to reach Zone A on demand.
+   Board input is dead; either fix that or find an MRA/config route.
+4. `ear-spr-line-all` frame 4200 reports 8 used-flag diffs. **Pre-existing**
+   -- identical with the cache reverted, same cycle count -- but unexplained.
+
+---
+
+## 2026-09-01/02 — Darius Gaiden's sprite colours: measured to the sprite framebuffer's read side, cause still open
+
+**The symptom.** Zone A on the board draws the two big foreground tower
+sprites solid red and gold where MAME has blue-grey steel. Everything else on
+the screen is right.
+
+**Matching the frame.** The board cannot be told what frame it is on, and
+`tools/rf_input.py` no longer drives it (the uinput keyboard is enumerated and
+ignored — coin and start do nothing on Ray Force either), so the scene came
+from the user pausing in Zone A. A dense MAME capture of Zone A and a
+brute-force exact-pixel search (`tools/rf_match_frame.py`, new) put the paused
+frame at **MAME frame 972**, a sharp peak at 35 %.
+
+**What the diff said.** 64.9 % of pixels differ and **100 % of the differing
+pixels are inside sprite layers**. pf2, pf3 and the pivot/text HUD are
+pixel-identical. Sprite silhouettes overlap MAME's 97.7 %, so the list walk,
+positions, zoom and tile codes are right and only the colours are wrong. Some
+board colours (`#830303`, `#C30303`, `#BB5323`) are not palette entries at all.
+
+**Why no bench could find it.** Every off-board check is clean, on the exact
+frame the board gets wrong:
+
+- the Python model is 0/74240 against MAME on three Zone A frames
+- the RTL sprite list walker is 320/320 (with `vis_mode=3` — `sim/spr_tb.cpp`
+  never drives that port, so `make spr` silently judges every game against Ray
+  Force's 31..254 window and scored this frame 50/320)
+- `pipetb` is **74240/74240 identical to the model**, at `F3_DDR_LAT` 40..400,
+  `F3_DDR_BUSY` 7..2 and `F3_SPS_LAT` 24/34
+- the MRA's four graphics regions are byte-identical to MAME's own
+
+**So the build had to make the board talk.** `SPRPIX WR:RD` sums the same
+pixels either side of the DDR3 round trip — `lb_q` as the writer streams a
+finished line out, `rd_color` as the mixer reads it back — with the write side
+delayed one frame so both halves describe the same DRAWN frame, which is what
+makes the row readable on a moving picture instead of only on a paused one.
+`tools/f3_sprfold.py` predicts what it must read; the RTL matched it exactly in
+simulation on three frames (Ray Force 1800 `7667`, dg972 `4325`, dg5070
+`fdda`) BEFORE the build shipped, so a deviation on the board could only be real.
+
+**The reading that settled it.** On a still picture the write side repeated
+`0x76E0` eleven times while the read side never once matched it, alternating
+between `0x1B75` and `0x88CD`. A still picture makes any frame offset
+irrelevant, and a read fold ABOVE the write fold cannot come from dropped
+lines — only from reading content that was never written. Two other stable
+scenes round-tripped 3/3 exactly.
+
+**Where it is NOT.** Two theories died to the boards' own numbers rather
+than to argument:
+
+- *The sprite draw overruns its line budget and the banks swap under it.*
+  `draw_unfinished` reads **0**: the draw always finishes all 256 lines, so
+  the overrun (`SPRLINE : LATE`, 38485) is not the mechanism. The OSD sprite
+  row cap built to test it is tied off rather than deleted.
+- *The prefetcher wraps NRB lines round onto the line being displayed and the
+  mixer composes a mix of two lines.* `defer_cnt` reads **0**, and the window
+  condition proves why: refilling slot L%NRB happens at `nf = L+NRB`, which
+  `nf < rd_line + NRB` only allows once `rd_line > L`. The `buf_ok` clear that
+  came out of this is kept as the invariant the module should have had, but it
+  is not the fix.
+
+**AND THEN THE INSTRUMENT MEASURED ITSELF.** This is the part worth keeping.
+`SPRPIX WR:RD` reset its read accumulator at `frame_start` (raster 260), but
+the mixer composes line L during raster L-1, so line 255 is composed at raster
+254 while the `rd_line` 255->0 wrap is at raster 261. The reset fell between
+them and cut line 255 out of the read side alone. The f3_224a sprite cull
+stops at line 254 and f3's runs to 255, so ONLY visarea-f3 games have content
+there -- and the artifact produced a perfect, causal-looking split:
+
+```
+Ray Force         f3_224a   296/296  100 %
+Bubble Bobble II  f3_224a   291/291  100 %
+Darius Gaiden     f3        146/192   76 %
+Elevator Action   f3         94/176   53 %
+Darius Gaiden     vis 3->0  167/167  100 %   <- one MRA config bit
+```
+
+Every one of those numbers is real and every conclusion drawn from them was
+wrong. What caught it: the per-line version flagged exactly ONE line, 255,
+while the same bench run rendered **74240/74240 identical to the model,
+including line 255**. Correct pixels and a raised flag cannot both be right.
+Re-keying the boundary to the `rd_line` wrap makes the bench read 0 bad lines
+for Darius on f3, EAR on f3 and Ray Force alike.
+
+**The lesson, since two builds went into it:** a diagnostic that straddles a
+frame boundary has to use the boundary the measured quantity actually has --
+for anything the mixer produces that is the `rd_line` wrap, not `frame_start`
+-- and a new counter must be cross-checked against something already known
+good. The pixel count was sitting right there saying the flag was false.
+
+**Where that leaves the bug — measured, build 02005337.** The corrected
+per-line row on hardware, Darius Gaiden, 295 samples over 140 s:
+
+```
+frames with NO bad line   249 / 295   (84 %)
+18190002  n=22   lines 24-25    count 2
+FFFF0001  n=12   line  255      count 1
+18FF0002  n=6    lines 24..255  count 2
+18FF0003  n=4    lines 24..255  count 3
+18180001  n=2    line  24       count 1
+```
+
+Every flagged line is 24, 25 or 255 — the first and last lines that carry
+sprites at all under visarea f3 (the cull runs 24..255), and they may yet be
+an edge effect in the comparison rather than a fault. What matters is what is
+NOT there: the body of the screen, which is where the red tower sprites are,
+is never flagged in 295 samples.
+
+**So the DDR3 round trip is exonerated for the region that is wrong.** The
+mixer receives exactly what the draw wrote there, which means the pixels were
+already wrong when the draw wrote them. The instrument was calibrated for this
+verdict: with `F3_DDR_CORRUPT=1` it reports 232 lines (24..255) and the
+picture collapses to 29053/74240, while at 1-in-200 the CRC-and-refetch
+machinery repairs everything and it correctly reports zero.
+
+**Next, and it needs a Zone A frame.** `wl_acc` is the DRAW's own per-line
+fold. `tools/f3_sprfold.py` can produce the model's per-line folds for a
+dumped frame, so comparing the two names exactly which lines the draw got
+wrong — and from there the suspects are the sprite gfx fetch under real
+SDRAM contention (board fetches take 84 clocks against 22 in the bench, and
+`rf_spr_ch_share` warns in its own header about desyncing a plane's
+completion) and the pen/colour composition. Reaching Zone A needs the user to
+play and pause; the attract loop only ever reaches Zone E.
 
 ---
 

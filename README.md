@@ -26,7 +26,8 @@ puts that missing 25 to 30 dB back.
 | *Elevator Action Returns* | **~80 %** | **Runs** — boots, plays, sprites and playfields draw, sound CPU streaming, one vblank ack per frame. All ten sampled frames match MAME pixel for pixel across the full 232-line visarea, five of them dumped after the fixes as an out-of-sample check. Still in `releases/experimental/`: the pivot layer is a mirror, ten frames of attract and character select are not a playthrough, and its sound has never been correlated. |
 | *Bubble Bobble II* | **~65 %** | **Runs on hardware** (2026-08-31) with no RTL change at all — an MRA and a config byte, which is what the universal F3 map was built for. Title, character select, cutscenes and play all draw correctly. Not frame-verified: the reference model itself is only exact on 3 of 10 dumped frames for this game, so there is nothing trustworthy to check the RTL against yet. |
 | *Bubble Memories* | **~40 %** | **MRA written and assembles** to the same 18.5 MB stream, all ten self-test expectations measured — but it has never been loaded on a board. Its sprites carry no `sprites_hi` ROM (4bpp where every other set is 6bpp), and the reference model renders three of its frames pixel-identical, so that path at least looks right. |
-| *Puzzle Bobble 2* | **~35 %** | **Boots and renders wrong.** Sprites, palettes and text are correct; the playfield is truncated because it is an `extend=0` game (eight 32x32 tilemaps) and that geometry, though implemented and verified, is compiled out for want of ~116 LABs. Fixing the LAB budget turns this one on, along with Darius Gaiden's whole tier. |
+| *Puzzle Bobble 2* | **~60 %** | **Renders correctly on hardware** (2026-09-01). The truncated playfield is gone: `extend=0` went live once compiling the framework's Y/C encoder and ascal's adaptive filter out paid for the LABs, and the before/after on the same attract screen is in `screenshots/pb2/`. Not frame-verified, and never played. |
+| *Darius Gaiden* | **~45 %** | **Boots and renders** (2026-09-01) — title, intro and attract-demo gameplay all correct, on an MRA and a config byte with no RTL change. The ROM path is proven: the byte count, checksum and SDRAM BIST the board reports are exactly the three numbers `rf_stream_sum.py` predicts from the MRA. **But it uses the pixel layer** — 98,304 non-zero writes across all eight 8 KB pages, where Ray Force only ever clears it — and this core mirrors 8 KB of that 64 KB window, so that layer cannot be right yet. Sound uncorrelated, never played, not frame-verified. |
 
 Percentages are judgement, not arithmetic; the rows either side of them are
 the evidence.
@@ -78,6 +79,27 @@ row and shows wrong graphics.
 > option had `On` as its first entry, so a fresh load got the self test.
 > Turn **Self Test** to `Off` in the OSD, or use a build after this note --
 > the default is fixed and a released core now boots to the game.
+>
+> **And a saved config can no longer do it either.** Fixing the OSD default
+> was necessary and not sufficient: MiSTer replays the saved status word from
+> `config/Rayforce.CFG` over the top of those defaults, so a card that had
+> ever switched `Self Test` on handed the bit straight back to every
+> bitstream loaded after it -- a brand-new build booting to the diagnostic
+> page with nothing whatever wrong with it. `Self Test` and `Service Mode`
+> are now *armed* rather than merely selected: whatever the bits say at the
+> moment the game starts is treated as inherited and ignored, and only a
+> change you make from the OSD afterwards turns either on. If the OSD reads
+> `On` while you are looking at the game, that is this -- toggle it `Off`,
+> then `On`.
+
+## Resources
+
+The FPGA is full — 95–98 % ALMs on every recent build, and four fits have
+failed outright. **[RESOURCES.md](RESOURCES.md)** documents the budget: which
+stores consume MLABs and why, what each lever is worth in measured numbers,
+the two different "can't fit" errors and what they mean, why the LAB
+percentage reads 100 % even in builds that fit comfortably, and the build
+memory caps. Read it before adding anything to the RTL.
 
 ## Known problems
 
@@ -93,7 +115,13 @@ row and shows wrong graphics.
 
 1. **Sprites can be missing or partial in busy scenes — boss transitions,
    heavy attract moments.** This is the most visible defect in the core and
-   it is measured, not suspected. The sprite engine draws each screen line
+   it is measured, not suspected.
+
+   > **See [SPRITE-CORRUPTION.md](SPRITE-CORRUPTION.md)** for the full register
+   > of what has been tried, what is ruled out and by what evidence, and what
+   > is still open. That file is the scoreboard; this section is the summary,
+   > and parts of it are now known to be wrong — see the correction at the end.
+ The sprite engine draws each screen line
    into a ring of line buffers running ahead of the mixer; when a line's draw
    misses its deadline the mixer composes that line anyway, with whatever
    sprites had arrived. The core counts both, and leaving it in attract for a
@@ -171,12 +199,73 @@ row and shows wrong graphics.
    3-frame bench run reads zero no matter what is happening -- `F3_FRAMES=20`
    or more is required before that number means anything.
 
+   **Measured to its cause, 2026-09-03: the heavy lines are PIXEL-bound.**
+   On hardware, Ray Force's worst sprite line carries **784 sprite rows** --
+   784 x 16 = 12,544 pixels -- and takes **14,236 clocks**, i.e. **1.135
+   clocks per pixel**. The draw emits exactly one pixel per clock
+   (`rf_video_spr.sv`, `dr_xx`), sixteen a row, whether or not the pixel
+   draws anything. Fitting the 3,456-clock budget needs 0.276 clocks/pixel,
+   about **four pixels per clock**. No fetch improvement can reach that, and
+   two were tried:
+
+   ```
+                             worst line   late lines/pass
+   baseline                     14,676         28
+   + sprite tile-row cache      14,236         28
+   + transparent-quad skip      13,781         28
+   ```
+
+   6 % off the worst line and **the late-line rate did not move at all** --
+   28 per page pass on both, across 63 and 83 consecutive samples. The cache
+   is still worth having (in simulation it halves a *fetch-bound* line at
+   board-like latency) but it is not what breaks a boss line, and neither is
+   ring depth. **The fix is a wider draw datapath**, which is real work: the
+   line buffer is a 16-bit single-write-port RAM, the DDR3 packer reads it a
+   pixel a clock too, a 2-pixel word only aligns at 1:1 zoom, and a
+   multi-write line buffer is exactly the inference trap that caused the
+   sprite splits. Until then this defect stands.
+
+   Why no bench caught it: the heaviest sprite line in any dumped frame in
+   this tree is 114 rows and is fetch-dominated, while the board's failing
+   line is 784 rows and is pixel-dominated. **No bench here reproduces the
+   regime that fails.**
+
+   **ROOT CAUSE (2026-09-08).** The sprite record store `rec[0:1][0:NREC-1]`
+   with `NREC = 12288` is 24,576 words, but Quartus silently built it as a
+   **16,384-word RAM** (`rec_rtl_0: WIDTHAD 14`). Bank 1's records from 4,096
+   up alias onto bank 0, so any frame with more than 4,096 sprite records
+   clobbers the other bank's head -- one frame parity draws a stale list, the
+   other is live, and you see two copies of every moving sprite, offset,
+   flickering at 30 Hz. The threshold is a record count, which is why it only
+   showed in busy scenes, and why raising `NREC` for the boss made it worse.
+   Verilator models the full declaration, so every bench passed. The fix is
+   `NREC = 8192`: 2 x 8192 is exactly the RAM Quartus builds. **Deployed as
+   build `07213908` on 2026-09-08 and verified -- the draw's per-frame fold
+   is constant on both parities, the flicker capture finds one state, and the
+   player's verdict was "that fixed almost all of it."** What remains is
+   dropped sprite rows on the single heaviest scene (the zone 2 boss, ~10,800
+   records against 8,192), which `SPR REC : DROP` counts -- a graceful loss,
+   not corruption. See [SPRITE-CORRUPTION.md](SPRITE-CORRUPTION.md).
+
+   **CORRECTION (2026-09-07): the conclusion above is not supported.** The
+   corruption was captured on the board and it appears on the CONTINUE screen
+   after a death — a near-static scene at almost no load — alternating between
+   two fixed states that are byte-identical run to run. A throughput ceiling
+   cannot do that. Heavy load makes it more visible, not more likely, so a
+   wider draw datapath is not the fix and the pixel-rate measurement, while
+   correct, is measuring the wrong thing. Everything ruled in and out since is
+   in [SPRITE-CORRUPTION.md](SPRITE-CORRUPTION.md).
+
 2. **The ES5510 DSP is not emulated**, only its host port. Measured impact:
    the dry sampler mix correlates **0.95–0.99** with MAME's full output across
    the whole soundtrack, so what the DSP adds is at most a faint residual. If
    something sounds thin against MAME, this is why.
-3. **Sprites lag the playfields by one frame; MAME uses two.** Visible, if at
-   all, as sprites leading the scroll by a frame.
+3. ~~**Sprites lag the playfields by one frame; MAME uses two.**~~ **Fixed**,
+   as a side effect of moving the sprite framebuffer to DDR3. The two stages
+   compose: the bucket store is double banked, so the draw reads last frame's
+   bank (`rf_video_spr.sv:47`), and the mixer then reads last frame's
+   framebuffer (`rf_spr_fb.sv:27`). One plus one is the two MAME uses for
+   this game.
 4. **NVRAM only saves when you open the OSD.** That is MiSTer's design, not
    the core's — see *Saving settings*.
 5. **Untested on hardware**: the *Gunlock* and *Ray Force (Japan)* MRAs, the
@@ -575,8 +664,8 @@ MAME's own `f3_config_table` (33 games):
 
 | Still hardwired here | How many games it blocks |
 |---|---|
-| `extend` is tied to 1 | **15 of 33** are `extend = 0` |
-| sprite lag is tied to 1 | 7 games want 2, 3 want 0 — including **both games this core ships** |
+| ~~`extend` is tied to 1~~ **live** (`cfg_extend`) | was 15 of 33; now none. Puzzle Bobble 2 and Darius Gaiden both render on it |
+| ~~sprite lag is tied to 1~~ **now 2** | matches MAME for both shipped games; 3 games want 0 and remain unserved |
 | pivot layer is an 8 KB mirror | every game that actually draws on it |
 | 18.5 MB SDRAM map | Kaiser Knuckle and Kirameki Star Road are 48-49 MB |
 
