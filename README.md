@@ -103,19 +103,54 @@ what each lever costs. Read it before adding anything to the RTL.
 
 | Game | MRA (in `releases/`) | ROM zip | Screen | State |
 |---|---|---|---|---|
-| Ray Force (US) | `Ray Force.mra` | `rayforce.zip` or `gunlock.zip` | vertical | plays; verified vs MAME |
-| Gunlock (World) | `Gunlock.mra` | same | vertical | built, not run on hardware |
-| Ray Force (Japan) | `Ray Force (Japan).mra` | same | vertical | built, not run on hardware |
-| Elevator Action Returns | `experimental/Elevator Action Returns.mra` | `elvactr.zip` | horizontal | plays; video verified, sound unchecked |
-| Bubble Bobble II | `experimental/Bubble Bobble II.mra` | `bublbob2.zip` | horizontal | plays on hardware |
-| Puzzle Bobble 2 | `experimental/Puzzle Bobble 2.mra` | `pbobble2.zip` | horizontal | renders correctly; never played through |
-| Darius Gaiden | `experimental/Darius Gaiden.mra` | `dariusg.zip` | horizontal | boots and renders; pixel layer only mirrored |
+| Bubble Bobble II | `Bubble Bobble II.mra` | `bublbob2.zip` | horizontal | plays on hardware; not frame-checked |
+| Darius Gaiden | `Darius Gaiden.mra` | `dariusg.zip` | horizontal | plays; some background objects mis-coloured (see Known problems) |
+| Elevator Action Returns | `Elevator Action Returns.mra` | `elvactr.zip` | horizontal | plays; ten frames pixel-exact vs MAME, sound unchecked |
+| Gunlock | `Gunlock.mra` | `gunlock.zip` (or `rayforce.zip`) | vertical | built, never run on hardware |
+| Puzzle Bobble 2 | `Puzzle Bobble 2.mra` | `pbobble2.zip` | horizontal | renders correctly; never played through |
+| Ray Force (Japan) | `Ray Force (Japan).mra` | `gunlock.zip` (or `rayforce.zip`) | vertical | built, never run on hardware |
+| Ray Force | `Ray Force.mra` | `gunlock.zip` (or `rayforce.zip`) | vertical | plays; verified against MAME |
+| Arabian Magic | `experimental/Arabian Magic.mra` | `arabianm.zip` | horizontal | renders and takes coins; never played through |
+| Arkanoid Returns | `experimental/Arkanoid Returns.mra` | `arkretrn.zip` | horizontal | renders and takes coins; never played through |
 | Bubble Memories | `experimental/Bubble Memories.mra` | `bubblem.zip` | horizontal | boots; needs OSD -> Service Mode once to write its EEPROM |
-| 26 more sets | `experimental/*.mra` | see the MRA | mostly horizontal | added 2026-09-08; see the Status table for which are confirmed |
+| Cleopatra Fortune | `experimental/Cleopatra Fortune.mra` | `cleopatr.zip` | horizontal | renders and takes coins; never played through |
+| Command War | `experimental/Command War.mra` | `commandw.zip` | horizontal | renders and takes coins; never played through |
+| Dan-Ku-Ga | `experimental/Dan-Ku-Ga.mra` | `dankuga.zip` | horizontal | renders and takes coins; never played through |
+| Darius Gaiden (write ring) | `experimental/Darius Gaiden (write ring).mra` | `dariusg.zip` | horizontal | debug variant: streams CPU writes over serial |
+| Darius Gaiden Extra Version | `experimental/Darius Gaiden Extra Version.mra` | `dariusgx.zip` | horizontal | renders and takes coins; never played through |
+| Gekirindan | `experimental/Gekirindan.mra` | `gekiridn.zip` | vertical | renders and takes coins; never played through |
+| Grid Seeker | `experimental/Grid Seeker.mra` | `gseeker.zip` | vertical | renders and takes coins; never played through |
+| Gunlock (zone 2) | `experimental/Gunlock (zone 2).mra` | `gunlock.zip` (or `rayforce.zip`) | vertical | debug variant: opens at zone 2 |
+| International Cup 94 | `experimental/International Cup 94.mra` | `intcup94.zip` | horizontal | renders and takes coins; never played through |
+| Kaiser Knuckle | `experimental/Kaiser Knuckle.mra` | `kaiserkn.zip` | horizontal | renders and takes coins; never played through |
+| Land Maker | `experimental/Land Maker.mra` | `landmakr.zip` | horizontal | renders and takes coins; never played through |
+| Light Bringer | `experimental/Light Bringer.mra` | `lightbr.zip` | horizontal | renders and takes coins; never played through |
+| Pop 'n Pop | `experimental/Pop 'n Pop.mra` | `popnpop.zip` | horizontal | renders and takes coins; never played through |
+| Puchi Carat | `experimental/Puchi Carat.mra` | `puchicar.zip` | horizontal | renders and takes coins; never played through |
+| Puzzle Bobble 3 | `experimental/Puzzle Bobble 3.mra` | `pbobble3.zip` | horizontal | renders and takes coins; never played through |
+| Puzzle Bobble 4 | `experimental/Puzzle Bobble 4.mra` | `pbobble4.zip` | horizontal | renders and takes coins; never played through |
+| Quiz Theater | `experimental/Quiz Theater.mra` | `qtheater.zip` | horizontal | renders and takes coins; never played through |
+| Quiz de Hyuuhyuu | `experimental/Quiz de Hyuuhyuu.mra` | `quizhuhu.zip` | horizontal | renders and takes coins; never played through |
+| Ray Force (zone 2) | `experimental/Ray Force (zone 2).mra` | `gunlock.zip` (or `rayforce.zip`) | vertical | debug variant: opens at zone 2 |
+| Recalhorn | `experimental/Recalhorn.mra` | `recalh.zip` | horizontal | renders and takes coins; never played through |
+| Riding Fight | `experimental/Riding Fight.mra` | `ridingf.zip` | horizontal | renders and takes coins; never played through |
+| Ring Rage | `experimental/Ring Rage.mra` | `ringrage.zip` | horizontal | renders and takes coins; never played through |
+| Space Invaders '95 | `experimental/Space Invaders '95.mra` | `spcinv95.zip` | vertical | renders and takes coins; never played through |
+| Super Cup Finals | `experimental/Super Cup Finals.mra` | `scfinals.zip` | horizontal | renders and takes coins; never played through |
+| Taito Cup Finals | `experimental/Taito Cup Finals.mra` | `cupfinal.zip` | horizontal | renders and takes coins; never played through |
+| Taito Power Goal | `experimental/Taito Power Goal.mra` | `pwrgoal.zip` | horizontal | renders and takes coins; never played through |
+| Top Ranking Stars | `experimental/Top Ranking Stars.mra` | `trstar.zip` | horizontal | renders and takes coins; never played through |
+| Twin Cobra II | `experimental/Twin Cobra II.mra` | `tcobra2.zip` | vertical | renders and takes coins; never played through |
+| Twin Qix | `experimental/Twin Qix.mra` | `twinqix.zip` | horizontal | renders and takes coins; never played through |
 
-Debug variants, same games: `Ray Force (zone 2).mra` and `Gunlock (zone 2).mra`
-open at zone 2 on coin + Start; `Darius Gaiden (write ring).mra` streams the
-CPU's writes over the serial port instead of the self-test page.
+All 39 entries above run on the **same** bitstream — each `.mra` names it and
+gets its own entry in the arcade menu. Copy the ones you want; there is no
+per-game bitstream.
+
+`experimental/` means less evidence, not a different build. "Renders and
+takes coins" is exactly that and no more: the game booted, drew its attract
+screen and accepted a coin on real hardware. None of those has been played
+through, so a fault that only shows in play would not have been found.
 
 One `gunlock.zip` covers all three Ray Force regions. Horizontal games no
 longer need **Rotate: None** set by hand -- the core forces it per game.
