@@ -15,12 +15,25 @@ known-correct intermediate to bisect against instead of one 51 KB C++ file.
 Usage:
     tools/f3_render.py dump 1800            # render, write dump/f3_01800_model.png
     tools/f3_render.py dump 1800 --compare  # and diff against MAME's frame
+    tools/f3_render.py dump/bmem 4200 --compare --lag 1   # Bubble games are lag 1
 
-Sprite timing: gunlock has sprite_lag 2, so what is on screen came from sprite
-RAM two frames earlier (screen_update draws the framebuffer, THEN draws the
-previous frame's sprite list, THEN reads sprite RAM). Pass --seq to feed three
-consecutive dumps through in order and reproduce that; a single frame renders
-sprites from its own RAM and will be two frames ahead of MAME.
+Sprite timing: what is on screen came from sprite RAM N frames earlier, where
+N is MAME's f3_config_table sprite_lag FOR THAT GAME -- 2 for Ray Force /
+Gunlock, but 1 for Bubble Bobble II and Bubble Memories. Set it with --lag N
+or F3_LAG=N; the default is 2.
+
+    GETTING THIS WRONG LOOKS LIKE A RENDERING BUG, NOT A TIMING ONE. At lag 2
+    the Bubble games differ from MAME on 7 of 10 frames (bmem 4200 by 14.7%),
+    and the error is confined to sprite pixels -- which reads as a fault in
+    the sprite block/multi path, because those games set block control on 97%
+    of their sprites where Ray Force sets it on 2%. It is not. At lag 1 both
+    games are 0/71680 on all ten frames. Measured 2026-09-09.
+
+    The earlier --depth flag could not express this: it only chose how many
+    warm-up frames to walk, while the render always used the list from
+    frame-2, so "--depth 1" drew NO sprites at all rather than lag-1 sprites.
+    That is what made lag 1 look decisively worse and produced the wrong
+    conclusion recorded in PREP-BUBBLE.md.
 """
 
 import os
@@ -945,28 +958,42 @@ def main():
     gfxs = load_gfx(d)
     eng = SpriteEngine(gfxs["spr"])
 
-    depth = 2
-    if "--depth" in sys.argv:
-        depth = int(sys.argv[sys.argv.index("--depth") + 1])
-    frames = [frame]
-    if seq:
-        for back in range(depth, 0, -1):
-            f = frame - back
-            if os.path.exists(os.path.join(d, "f3_%05d_spriteram.bin" % f)):
-                frames.insert(-1, f)
-        if len(frames) < 3:
-            print("note: sprite_lag is 2 and dumps for frame-1/frame-2 are missing;"
-                  " sprites will be up to two frames ahead of MAME")
+    # Sprite lag: the list on screen was built from sprite RAM `lag` frames
+    # back. Ray Force / Gunlock are 2, the Bubble games are 1 -- MAME's
+    # f3_config_table per game. WARM is how many extra earlier frames to walk
+    # so the engine's latched state (bank, flipscreen, extra planes, and the
+    # trails framebuffer) is what it would be at that point.
+    lag = int(os.environ.get("F3_LAG", "2"))
+    if "--lag" in sys.argv:
+        lag = int(sys.argv[sys.argv.index("--lag") + 1])
+    WARM = 2
 
-    # screen_update with sprite_lag 2: scanline_draw, draw_sprites, get_sprite_info
-    for i, f in enumerate(frames):
-        dump = Dump(d, f)
-        gfxs["char"] = f3_gfx.decode_char(dump.charram_raw)
-        gfxs["pivot"] = f3_gfx.decode_char(dump.pivot_raw)
-        if i == len(frames) - 1:
-            img = render_frame(dump, gfxs, eng)
-        eng.draw_sprites()
+    if seq and lag:
+        have = 0
+        for f in range(frame - lag - WARM, frame - lag + 1):
+            if not os.path.exists(os.path.join(d, "f3_%05d_spriteram.bin" % f)):
+                continue
+            eng.get_sprite_info(Dump(d, f).spriteram)
+            eng.draw_sprites()
+            have += 1
+        if not have:
+            # No lagged dump, so the framebuffer stays empty -- but the engine
+            # still has to LATCH the command-word state, because render_frame
+            # reads eng.flipscreen and a wrong flip moves every playfield.
+            # Latch from this frame without drawing: sprites missing is honest,
+            # a mirrored background is not.
+            eng.get_sprite_info(Dump(d, frame).spriteram)
+            print("note: sprite_lag is %d but no dump for frame-%d exists;"
+                  " rendering without sprites (state latched from frame %d)"
+                  % (lag, lag, frame))
+
+    dump = Dump(d, frame)
+    gfxs["char"] = f3_gfx.decode_char(dump.charram_raw)
+    gfxs["pivot"] = f3_gfx.decode_char(dump.pivot_raw)
+    if not seq or not lag:
         eng.get_sprite_info(dump.spriteram)
+        eng.draw_sprites()
+    img = render_frame(dump, gfxs, eng)
 
     from PIL import Image
     out = os.path.join(d, "f3_%05d_model.png" % frame)

@@ -58,12 +58,18 @@ same run that produced the two new hashes.
 
 ## Two things that look like problems and are not
 
-**Sprite lag.** MAME's `f3_config_table` declares lag 1 for both games,
-against Ray Force's 2. Measured against MAME's own frames, that table value
-does not describe this dump pipeline: depth 2 beats depth 1 decisively
-(bb2: 0.0-1.2% at depth 2 versus 6.7-83.8% at depth 1). Depths 3, 4, 5 and 6
-are byte-identical to depth 2. **The existing lag-2 tooling is already
-correct for these games. Do not change it, and do not add a lag parameter.**
+**Sprite lag.** ~~MAME's `f3_config_table` declares lag 1 for both games,
+against Ray Force's 2, but depth 2 beats depth 1 decisively, so the table
+does not describe this dump pipeline. Do not add a lag parameter.~~
+
+**WRONG, corrected 2026-09-09. The table was right and this WAS the bug --
+see "The real gap" below.** The measurement that produced this paragraph was
+broken: `--depth` only chose how many warm-up frames to walk, while the render
+always used the sprite list from frame-2. `--depth 1` therefore drew NO
+SPRITES AT ALL rather than lag-1 sprites, which is why lag 1 looked
+catastrophic (6.7-83.8%) and why depths 3-6 came out byte-identical to depth
+2. `f3_render.py` now takes `--lag N` / `F3_LAG=N`, default 2; **the Bubble
+games need `--lag 1`.**
 
 **Bubble Memories has no `sprites_hi` ROM.** MAME declares the region
 `EMPTY_SPRITE_HIDATA(0x200000)` -- 2 MB of zeros -- so its sprites are
@@ -72,7 +78,32 @@ structural risk, and it is disproved: bmem frames 900, 1200 and 1800 render
 **pixel-identical** to MAME with that region all zeros. The 4bpp path is
 correct.
 
-## The real gap: the model is not exact for these games
+## The real gap: SOLVED 2026-09-09 -- it was sprite lag, not block/multi
+
+**Both games are now 0 / 71680 on all ten frames, at `--lag 1`.** Ray Force
+stays 0 at the default `--lag 2`, and Elevator Action Returns and all five
+Darius Gaiden dumps are unchanged at 0.
+
+| lag | bb2, ten frames | bmem, ten frames |
+|---|---|---|
+| 2 (old default) | 878 602 404 67 292 280 341 0 0 0 | 817 0 0 0 1340 298 301 10526 142 446 |
+| **1 (correct)** | **0 0 0 0 0 0 0 0 0 0** | **0 0 0 0 0 0 0 0 0 0** |
+
+The block/multi reasoning below is preserved because the elimination work in
+it is still sound -- but its conclusion was wrong. The correlation it rests on
+is real and misleading: these games DO set block control on 97% of sprites
+where Ray Force sets it on 2%, and they also happen to be the games with a
+different sprite lag. The differences were confined to sprite pixels because
+a wrong lag moves only sprites. **A per-game constant, not a rendering path.**
+That makes this the same lesson as [[f3-per-game-constants]] again.
+
+Fixing the lag also fixed something unrelated in the old harness: because it
+never called `get_sprite_info` when the lagged dump was missing, `eng.flipscreen`
+kept its default and every playfield rendered unflipped. Ray Force frames 298,
+598, 898, 1198, 1790, 2100 and 2398 went from 1746-30001 wrong pixels to 0
+(or far fewer). The model now latches command state even when it cannot draw.
+
+### The original block/multi analysis (kept for the elimination it did)
 
 Model versus MAME's own frames, depth 2, ten dumped frames each:
 
@@ -135,21 +166,36 @@ Updated 2026-08-31, after the session that did items 5 and 7 out of order.
 
 **Still to do, in order:**
 
-1. **Close the model gap.** It is in `tools/f3_render.py`'s sprite
-   block/multi handling, and until it is closed the RTL has no trustworthy
-   reference for these games. Start at bmem 4200. This gates *verifying*
-   Bubble Bobble II, not running it.
+1. ~~**Close the model gap.**~~ **DONE 2026-09-09** -- it was sprite lag, not
+   block/multi. Use `--lag 1` for both Bubble games; both are pixel-exact on
+   all ten frames. The RTL now has a trustworthy reference for these games,
+   so verifying Bubble Bobble II is unblocked.
 2. **Move `rec` and `sl_d` out of MLABs**, the way `sl_y` went. Worth ~832
    LABs, which is what the rest of the roadmap is short of. The draw has the
    slack (5179 clocks on the worst line with 0 late), but M10K is now at
    543/553 so blocks have to be freed first -- the debug ring is ~12.
-3. Widen `cfg_game` past 2 bits, and move the expectations into an M10K ROM
+3. ~~Widen `cfg_game` past 2 bits~~ (DONE -- it is `wire [5:0] cfg_game` now,
+   which is how 26+ games ship), and move the expectations into an M10K ROM
    at the same time. The field is full at four games, and every game in the
    tables below needs an id. Note `ST_ROWS + game_id` is a 5-bit index with
    `ST_ROWS = 28`, so the self-test title rows need extending together with
    it.
-4. Add `bb2-*`/`bmem-*` targets to `sim/Makefile`, modelled on the `ear-*`
-   ones but with **no** visarea or lag override, since both match Ray Force.
+4. ~~Add `bb2-*`/`bmem-*` targets to `sim/Makefile`~~ **DONE 2026-09-09**:
+   `bb2-pipe-all`, `bmem-pipe-all`, `bb2-spr-line-all`, `bmem-spr-line-all`
+   and `bubble-all`, at `F3_LAG=1` (no visarea override -- both are f3_224a,
+   Ray Force's own crop). `F3_LAG` had to be plumbed through BOTH sides:
+   `gen_pipe_ref.py`, `gen_spr_fb_ref.py`, `pipe_tb.cpp` and `spr_line_tb.cpp`
+   all hardcoded `frame - 2`.
+
+   **Result: 44/44 frames 71680/71680 pixels identical, RTL vs model.** With
+   the model itself now 0/71680 against MAME, both games are verified end to
+   end. The only divergence is the known, benign row-usage over-report
+   (bb2 1799/1800: 46/45 flags; bmem 2999/3000: 21) -- the RTL sets the flag
+   on any visible pen without a read-before-write, so overlapping priority
+   groups over-claim. Ray Force frame 4200 has had 1 of these all along; these
+   games mix priority groups far more (bb2 600 is 67 pri-1 and 280 pri-2
+   sprites against Ray Force's 90% single group), hence the larger counts.
+   Explained in HANDOFF.md; SPRITE-CORRUPTION.md still calls it unexplained.
 5. Bubble Memories on hardware: it has an MRA and measured expectations but
    has never been loaded.
 

@@ -188,6 +188,70 @@ ear-spr-line-all: obj_dir/sprlinetb
 	      2>&1 | tail -1 || exit 1; \
 	done
 
+# ---- Bubble Bobble II / Bubble Memories ---------------------------------
+# Both use f3_224a, Ray Force's own crop, so NO visarea override is needed --
+# unlike the ear-* targets above. What they DO need is F3_LAG=1: MAME's
+# f3_config_table gives these two games sprite_lag 1 where Ray Force has 2.
+#
+# Getting that wrong does not look like a timing bug, it looks like a sprite
+# RENDERING bug confined to sprite pixels, and it cost a wrong conclusion in
+# PREP-BUBBLE.md (blamed on the sprite block/multi path, which these games
+# exercise on 97% of sprites against Ray Force's 2%). At lag 1 the model is
+# 0/71680 against MAME on all ten frames of both games; at lag 2 it is not.
+# F3_LAG goes to BOTH sides -- the generator and the bench -- or they compare
+# different frames.
+#
+#   make bb2-pipe-all        every dumped bb2 frame through the full pipe
+#   make bmem-spr-line-all   sprite framebuffer only
+BUBBLE_LAG = 1
+# Only frames whose LAG-back sprite dump also exists. The dumps come in
+# triples (f-2, f-1, f) sized for lag 2, so at lag 1 the FIRST of each triple
+# has no predecessor and must be skipped rather than reported as a failure.
+bb2_FRAMES = $(shell ls ../dump/bb2/f3_*_frame.argb 2>/dev/null | \
+  sed 's|.*f3_0*\([0-9]*\)_frame.argb|\1|' | \
+  while read f; do \
+    [ -f ../dump/bb2/f3_$$(printf '%05d' $$((f-$(BUBBLE_LAG))))_spriteram.bin ] && echo $$f; \
+  done)
+bmem_FRAMES = $(shell ls ../dump/bmem/f3_*_frame.argb 2>/dev/null | \
+  sed 's|.*f3_0*\([0-9]*\)_frame.argb|\1|' | \
+  while read f; do \
+    [ -f ../dump/bmem/f3_$$(printf '%05d' $$((f-$(BUBBLE_LAG))))_spriteram.bin ] && echo $$f; \
+  done)
+
+bb2-pipe-all: obj_dir/pipetb
+	@for f in $(bb2_FRAMES); do \
+	  printf 'bb2   frame %5s: ' $$f; \
+	  F3_LAG=$(BUBBLE_LAG) python3 gen_pipe_ref.py ../dump/bb2 $$f > pipe_ref_bb2_$$f.txt; \
+	  F3_LAG=$(BUBBLE_LAG) ./obj_dir/pipetb ../dump/bb2 $$f pipe_ref_bb2_$$f.txt \
+	      pipe_out_bb2_$$f.ppm 2>&1 | tail -1 || exit 1; \
+	done
+
+bmem-pipe-all: obj_dir/pipetb
+	@for f in $(bmem_FRAMES); do \
+	  printf 'bmem  frame %5s: ' $$f; \
+	  F3_LAG=$(BUBBLE_LAG) python3 gen_pipe_ref.py ../dump/bmem $$f > pipe_ref_bmem_$$f.txt; \
+	  F3_LAG=$(BUBBLE_LAG) ./obj_dir/pipetb ../dump/bmem $$f pipe_ref_bmem_$$f.txt \
+	      pipe_out_bmem_$$f.ppm 2>&1 | tail -1 || exit 1; \
+	done
+
+bb2-spr-line-all: obj_dir/sprlinetb
+	@for f in $(bb2_FRAMES); do \
+	  printf 'bb2   frame %5s: ' $$f; \
+	  F3_LAG=$(BUBBLE_LAG) python3 gen_spr_fb_ref.py ../dump/bb2 $$f > spr_fb_ref_bb2_$$f.txt; \
+	  F3_LAG=$(BUBBLE_LAG) ./obj_dir/sprlinetb ../dump/bb2 $$f spr_fb_ref_bb2_$$f.txt \
+	      2>&1 | tail -1 || exit 1; \
+	done
+
+bmem-spr-line-all: obj_dir/sprlinetb
+	@for f in $(bmem_FRAMES); do \
+	  printf 'bmem  frame %5s: ' $$f; \
+	  F3_LAG=$(BUBBLE_LAG) python3 gen_spr_fb_ref.py ../dump/bmem $$f > spr_fb_ref_bmem_$$f.txt; \
+	  F3_LAG=$(BUBBLE_LAG) ./obj_dir/sprlinetb ../dump/bmem $$f spr_fb_ref_bmem_$$f.txt \
+	      2>&1 | tail -1 || exit 1; \
+	done
+
+bubble-all: bb2-spr-line-all bmem-spr-line-all bb2-pipe-all bmem-pipe-all
+
 spr-ghost: obj_dir/sprlinetb spr_fb_ref_3000.txt spr_fb_ref_300.txt
 	./obj_dir/sprlinetb ../dump 3000 spr_fb_ref_3000.txt 300 spr_fb_ref_300.txt
 

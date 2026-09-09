@@ -97,7 +97,12 @@ int main(int argc, char** argv) {
     tram   = be16(load(dir + pre + "textram.bin"));
     cram   = be16(load(dir + pre + "charram.bin"));
     vram   = be16(load(dir + pre + "pivot_ram.bin"));
-    { char s2[64]; snprintf(s2, sizeof s2, "/f3_%05d_spriteram.bin", frame - 2);
+    // Sprite lag is PER GAME (MAME f3_config_table): 2 for Ray Force/Gunlock
+    // and EAR, 1 for Bubble Bobble II and Bubble Memories. The model reads the
+    // same F3_LAG, so both sides must be given it or the comparison is against
+    // the wrong frame's sprites and reads as a sprite rendering fault.
+    { const char* lg = getenv("F3_LAG"); int lag = lg ? atoi(lg) : 2;
+      char s2[64]; snprintf(s2, sizeof s2, "/f3_%05d_spriteram.bin", frame - lag);
       sram = be16(load(dir + s2)); }
     uint16_t ctrl[16] = {0};
     { FILE* f = fopen((dir + pre + "ctrl.txt").c_str(), "r");

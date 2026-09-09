@@ -24,7 +24,7 @@ needs sound-ROM banking the core does not implement.
 | **Ray Force** (US) | Plays with sound. The sprite corruption is fixed (2026-09-08): the sprite record store was declared two banks of 12,288 but Quartus built one 16,384-word RAM, so each frame's records overwrote the other frame's. Sized to 8,192 per bank it cannot alias. Some sprite rows drop on the zone 2 boss instead. |
 | **Gunlock** / **Ray Force (Japan)** | Same board, one program chip different. Built, not yet run on hardware. |
 | *Elevator Action Returns* | Plays. Ten frames match MAME pixel for pixel. Sound not yet checked. |
-| *Bubble Bobble II* | Plays on hardware. Not yet frame-checked. |
+| *Bubble Bobble II* | Plays on hardware. Frame-checked 2026-09-09: 20 frames pixel-exact MAME -> model -> RTL. |
 | *Puzzle Bobble 2, 3, 4* | All render on hardware. Never played through. |
 | *Darius Gaiden* + *Extra Version* | Both render. Use the pixel layer, which this core only mirrors. |
 | *Bubble Memories* | Boots. Its EEPROM has never been written, so it asks for the TEST switch on a fresh card: OSD -> Service Mode -> reset, once. |

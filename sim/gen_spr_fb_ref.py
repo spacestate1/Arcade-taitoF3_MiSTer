@@ -4,8 +4,9 @@
 Stage (c) of the sprite engine -- the per-line builder -- draws the walked
 list into a line buffer with zoom, flips, the pen mask and the priority
 "later list entry wins" rule. The oracle is the model's own framebuffer
-(SpriteEngine.fb) after get_sprite_info + draw_sprites on frame F-2's sprite
-RAM (the lag-2 source), which is what render_frame samples and what matched
+(SpriteEngine.fb) after get_sprite_info + draw_sprites on frame F-LAG's
+sprite RAM (F3_LAG, 2 for Ray Force and 1 for the Bubble games), which is
+what render_frame samples and what matched
 MAME 15/15 through the mixer.
 
 Emits, per screen line, the visible span (raster x 46..365 = 320 values) of
@@ -22,9 +23,12 @@ import f3_render as R
 
 d = sys.argv[1] if len(sys.argv) > 1 else "dump"
 frame = int(sys.argv[2]) if len(sys.argv) > 2 else 1800
-src = frame - 2
+# Sprite lag is per game: 2 for Ray Force / Gunlock / EAR, 1 for the Bubble
+# games. Keep this in step with the bench, which reads the same F3_LAG.
+LAG = int(os.environ.get("F3_LAG", "2"))
+src = frame - LAG
 if not os.path.exists(os.path.join(d, "f3_%05d_spriteram.bin" % src)):
-    sys.exit("need the frame-2 dump (sprite_lag 2)")
+    sys.exit("need the frame-%d dump (sprite_lag %d)" % (LAG, LAG))
 
 gfxs = R.load_gfx(d)
 eng = R.SpriteEngine(gfxs["spr"])

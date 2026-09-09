@@ -2,9 +2,9 @@
 """Full model frame (playfields + pivot + sprites) for sim/pipe_tb.cpp.
 
 rf_video_pipe now renders everything the model does except the pivot pixel-
-layer corner cases, so the reference is the whole picture. Sprites lag 2
-frames in the model; the bench feeds the RTL sprite RAM from frame-2 so the
-two agree. Rows are hex RGB, visible lines only.
+layer corner cases, so the reference is the whole picture. Sprites lag F3_LAG
+frames in the model (2 for Ray Force, 1 for the Bubble games); the bench feeds
+the RTL sprite RAM from the same frame so the two agree. Rows are hex RGB, visible lines only.
 
     sim/gen_pipe_ref.py [dump_dir] [frame] > sim/pipe_ref.txt
 """
@@ -19,20 +19,24 @@ import f3_render as R
 d = sys.argv[1] if len(sys.argv) > 1 else "dump"
 frame = int(sys.argv[2]) if len(sys.argv) > 2 else 1800
 
+# Sprite lag is per game (F3_LAG: 2 for Ray Force / Gunlock / EAR, 1 for the
+# Bubble games). The list on screen comes from sprite RAM LAG frames back; the
+# bench feeds the RTL the same frame, so the two agree.
+LAG = int(os.environ.get("F3_LAG", "2"))
+WARM = 2
+
 gfxs = R.load_gfx(d)
 eng = R.SpriteEngine(gfxs["spr"])
-frames = [f for f in (frame - 2, frame - 1, frame)
-          if os.path.exists(os.path.join(d, "f3_%05d_spriteram.bin" % f))]
-img = None
-for i, f in enumerate(frames):
-    dump = R.Dump(d, f)
-    gfxs["char"] = f3_gfx.decode_char(dump.charram_raw)
-    gfxs["pivot"] = f3_gfx.decode_char(dump.pivot_raw)
-    if i == len(frames) - 1:
-        img = R.render_frame(dump, gfxs, eng)
-        break
+for f in range(frame - LAG - WARM, frame - LAG + 1):
+    if not os.path.exists(os.path.join(d, "f3_%05d_spriteram.bin" % f)):
+        continue
+    eng.get_sprite_info(R.Dump(d, f).spriteram)
     eng.draw_sprites()
-    eng.get_sprite_info(dump.spriteram)
+
+dump = R.Dump(d, frame)
+gfxs["char"] = f3_gfx.decode_char(dump.charram_raw)
+gfxs["pivot"] = f3_gfx.decode_char(dump.pivot_raw)
+img = R.render_frame(dump, gfxs, eng)
 
 print(f"# frame {frame} playfields + pivot + sprites")
 for sy in range(R.VIS_Y0, R.VIS_Y1 + 1):

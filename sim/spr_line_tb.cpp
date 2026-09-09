@@ -58,7 +58,11 @@ int main(int argc, char** argv) {
     int frame = argc > 2 ? atoi(argv[2]) : 1800;
     const char* refp = argc > 3 ? argv[3] : "spr_fb_ref.txt";
 
-    char pre[64]; snprintf(pre, sizeof pre, "/f3_%05d_spriteram.bin", frame - 2);
+    // Per-game sprite lag; see pipe_tb.cpp. Must match the F3_LAG the
+    // reference generator was run with.
+    const char* lagenv = getenv("F3_LAG");
+    const int f3_lag = lagenv ? atoi(lagenv) : 2;
+    char pre[64]; snprintf(pre, sizeof pre, "/f3_%05d_spriteram.bin", frame - f3_lag);
     { auto b = load(dir + pre); sram.resize(b.size() / 2);
       for (size_t i = 0; i < sram.size(); i++) sram[i] = (b[2 * i] << 8) | b[2 * i + 1]; }
 
@@ -198,7 +202,7 @@ int main(int argc, char** argv) {
     // ---- second frame: the ghost regression -----------------------------
     if (argc > 5) {
         int frame2 = atoi(argv[4]);
-        char pre2[64]; snprintf(pre2, sizeof pre2, "/f3_%05d_spriteram.bin", frame2 - 2);
+        char pre2[64]; snprintf(pre2, sizeof pre2, "/f3_%05d_spriteram.bin", frame2 - f3_lag);
         { auto b = load(dir + pre2); sram.assign(b.size() / 2, 0);
           for (size_t i = 0; i < sram.size(); i++) sram[i] = (b[2 * i] << 8) | b[2 * i + 1]; }
         load_ref(argv[5]);
