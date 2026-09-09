@@ -9,6 +9,12 @@ BTN = [0x130,0x131,0x133,0x134,0x136,0x137,0x13a,0x13b,0x13c,0x13d,0x13e]
 NAME = {0x13a:"SELECT_coin", 0x13b:"START", 0x130:"A", 0x131:"B",
         0x133:"X", 0x134:"Y", 0x136:"LB", 0x137:"RB",
         0x13c:"GUIDE", 0x13d:"LTHUMB", 0x13e:"RTHUMB"}
+# Directions come from the hat, which is what MiSTer maps a pad's d-pad to.
+# A token is DIR:ms, e.g. LEFT:1200 -- held, not tapped, so a screenshot
+# taken while it is down shows where the player actually moved.
+ABS_HAT0X, ABS_HAT0Y = 0x10, 0x11
+HAT = {"LEFT":(ABS_HAT0X,-1), "RIGHT":(ABS_HAT0X,1),
+       "UP":(ABS_HAT0Y,-1),   "DOWN":(ABS_HAT0Y,1)}
 AXES = {0x00:(-32768,32767), 0x01:(-32768,32767), 0x02:(0,1023),
         0x03:(-32768,32767), 0x04:(-32768,32767), 0x05:(0,1023),
         0x10:(-1,1), 0x11:(-1,1)}
@@ -22,6 +28,28 @@ def emit(fd,t,c,v): os.write(fd, struct.pack("@llHHi",0,0,t,c,v))
 def press(fd,code,ms=120):
     emit(fd,EV_KEY,code,1); emit(fd,EV_SYN,0,0); time.sleep(ms/1000.0)
     emit(fd,EV_KEY,code,0); emit(fd,EV_SYN,0,0); time.sleep(0.25)
+
+def hold_btn(fd,code,ms,shotfn=None):
+    """Hold a button and screenshot WHILE it is down.
+
+    A 120 ms tap followed by a screenshot 2 s later cannot see a shot: the
+    projectile has already left the screen. Any 'does fire work' test must
+    capture during the press.
+    """
+    emit(fd,EV_KEY,code,1); emit(fd,EV_SYN,0,0)
+    time.sleep(0.35)
+    if shotfn: shotfn()
+    time.sleep(max(0,ms-350)/1000.0)
+    emit(fd,EV_KEY,code,0); emit(fd,EV_SYN,0,0); time.sleep(0.3)
+
+def hold_dir(fd,name,ms,shotfn=None):
+    """Hold a direction, screenshot WHILE it is held, then release."""
+    ax,val = HAT[name]
+    emit(fd,EV_ABS,ax,val); emit(fd,EV_SYN,0,0)
+    time.sleep(min(ms,700)/1000.0)
+    if shotfn: shotfn()
+    time.sleep(max(0,ms-700)/1000.0)
+    emit(fd,EV_ABS,ax,0); emit(fd,EV_SYN,0,0); time.sleep(0.3)
 
 def shot(n,label):
     for d_ in glob.glob("/media/fat/screenshots/*/"):
@@ -53,8 +81,19 @@ if mra != "-":
 n=0; shot(n,"attract"); n+=1
 for tok in seq:
     name,_,rep = tok.partition(":")
-    code = {v:k for k,v in NAME.items()}.get(name)
+    if name in HAT:
+        ms = int(rep) if rep else 1200
+        hold_dir(fd, name, ms, shotfn=lambda nn=n,l=name: shot(nn,"held_"+l))
+        print("held",name,ms,"ms"); sys.stdout.flush(); n+=1
+        continue
+    hold = name.startswith("HOLD_")
+    code = {v:k for k,v in NAME.items()}.get(name[5:] if hold else name)
     if code is None: print("unknown",name); continue
+    if hold:
+        ms = int(rep) if rep else 1500
+        hold_btn(fd, code, ms, shotfn=lambda nn=n,l=name: shot(nn,l))
+        print("held",name,ms,"ms"); sys.stdout.flush(); n+=1
+        continue
     for _ in range(int(rep) if rep else 1): press(fd,code)
     print("pressed",name); sys.stdout.flush()
     time.sleep(2.0); shot(n,name); n+=1
