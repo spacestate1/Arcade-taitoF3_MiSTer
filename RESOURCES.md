@@ -39,6 +39,8 @@ sprite codes went in:
 |---|---|---:|---:|---|---|
 | `08111804` | PB3/4 bank, 12-bit palette, map profile 1 (36 MB) | 39,863 | 2,047 | 549 | met +0.247 |
 | `08130419` | + rotation fix, profile 1 corrected to 42 MB, tables to id 36 | 40,863 | 1,047 | 549 | **HDMI -0.093** |
+| `08142400` | shipped as `Rayforce_20260908.rbf` | — | — | — | met |
+| `08201940` | + sound-ROM banking, reset to bank 1, gated off until used | 39,940 | 1,970 | 549 | **HDMI -0.036** |
 
 The 36 -> 42 MB correction and the per-game tables cost about 1,000 ALMs and
 took the design from 95 % to 98 %. `08111804` came out ~950 ALMs SMALLER than
@@ -102,7 +104,7 @@ shallow version wasted the same three blocks.
 
 M10K consumers worth knowing: the debug write ring is 2048 x 56 = **11
 blocks** (halving it to 1024 frees ~5), the sprite line-buffer ring is
-NB(8) x 512 x 16 = ~6.4, and the tile-row cache was 8.
+NB(8) x 512 x 16 = ~6.4, and the tile-row cache is 8.
 
 ## The levers, and what each is worth
 
@@ -127,8 +129,12 @@ not estimated, except where it says otherwise.
 4. **Shrink the debug write ring** (rf_main, 2048 entries): ~5 M10Ks, no LABs.
    It was already halved once from 4096.
 5. **Drop the sprite tile-row cache** (`rf_spr_gfx_bus`): 8 M10Ks plus its
-   tag-compare logic. Removed 2026-09-03 -- its only claimed benefit was
-   never confirmed with a control and it bought 3 % on the board.
+   tag-compare logic. **Still in the design and enabled** -- `CACHE_EN =
+   1'b1` at rf_spr_gfx_bus.sv:197. An earlier version of this file said it
+   was "Removed 2026-09-03"; it was disabled for one experiment and turned
+   back on, and the note was never corrected. Turning it off is a real lever,
+   but it is not free: its benefit was measured at 3 % on the board and it
+   has never been re-tested since the sprite store was resized.
 
 ## The sizing lesson
 

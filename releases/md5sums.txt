@@ -14,6 +14,7 @@ a7651e8e39b49c1804ff9cda6afeb757  Ray Force.mra
 d02956376eaf9cffa71a594cb8be9823  Rayforce_20260831.rbf
 affa4758ac9db62b802a9c1564cfa7a0  Rayforce_20260907.rbf
 a65c68626cb8be25fdcb827488aa8d63  Rayforce_20260908.rbf
+aa3c9d9e3a0f19684d3550e4502eafb6  Rayforce_20260908b.rbf
 297ec0641a10f0da08b67b9f8f31fb81  experimental/Arabian Magic.mra
 5c4ab8b202f493b4d90b6d9787ded793  experimental/Arkanoid Returns.mra
 03cbe49ac858bb2c6564d69887a448d8  experimental/Bubble Memories.mra

@@ -60,6 +60,23 @@ MRAs correct.
 
 ---
 
+## Rayforce_20260908b.rbf
+
+Build stamp `08201940`.
+
+- **Nothing changes for any game you can play.** This is `Rayforce_20260908`
+  with the sound-ROM banking put back in correctly, so the published
+  bitstream matches the source in the repository again. Both files play all
+  35 games with sound; `20260908` stays where it is and is still fine to use.
+- The banking is the feature that broke sound a few hours earlier. It now
+  starts on the same bank the real board does, and stays completely out of
+  the way until a game asks for it -- which no shipping game does. Verified
+  on hardware after building: Ray Force and Puzzle Bobble 3 both captured
+  live audio off the board, 4,096 samples with no silence in them.
+- Kirameki Star Road, the game the banking is for, still has no MRA and
+  still does not run.
+- Known problems are unchanged from `Rayforce_20260908` below.
+
 ## Rayforce_20260908.rbf
 
 Build stamp `08142400`.
