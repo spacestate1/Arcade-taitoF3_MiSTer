@@ -55,8 +55,21 @@ done
 ```
 
 `zone_inj` must be 0 for every MRA. The only files allowed to report 1 are
-the ones with `(zone 2)` in the name. Last checked 2026-09-08: all eleven
-MRAs correct.
+the ones with `(zone 2)` in the name.
+
+**`python3 tools/check_mra_cfg.py` does this and more, and is the gate to
+run.** It decodes every config byte in every shipped MRA and fails on a
+start zone in a non-debug file, on two different games sharing a game id,
+on a shipping MRA that pins the UART to a debug stream, and on the 12-bit
+palette being claimed by both the MRA and the RTL id table. Both of its
+first two checks were verified against real historical failures before it
+was trusted. Last run 2026-09-08: 39 MRAs, 36 distinct ids, all pass.
+
+Why this exists: every other gate in the project validates a transform --
+the benches feed the RTL a stream captured from MAME and compare the
+output. Config bytes are pure input, so a wrong one renders a different
+game's geometry with every bench still green. On 2026-09-08 nine of
+thirteen generated MRAs had the wrong game id and nothing caught it.
 
 ---
 
