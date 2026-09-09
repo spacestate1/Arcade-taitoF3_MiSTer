@@ -62,8 +62,17 @@ MRAs correct.
 
 ## Rayforce_20260908.rbf
 
-Build stamp `08154107`. **Use this one.** The earlier bitstreams cannot run
-most of the games below.
+Build stamp `08142400`.
+
+> **A bitstream stamped `08154107` was briefly published here and HAD NO
+> SOUND IN ANY GAME.** If you have it, replace it with this one. The cause was
+> the sound CPU's 0xC20000 window: it was given a bank index that reset to 0
+> where the hardware resets it to 1, so the sound 68000 executed the wrong
+> 128 KB of its own program. Reported from a board within hours -- "installed
+> the 20260908 version, however I didn't get any sound, reverted and got the
+> sound back" -- and this file is now the same build with that change simply
+> absent. The banking it was added for (Kirameki Star Road) is not in this
+> bitstream and Kirameki does not run either way.
 
 - **29 more games run**, taking the core from 6 to 35 of the 38 Taito F3
   sets. Arkanoid Returns, Grid Seeker, Space Invaders '95, Cleopatra

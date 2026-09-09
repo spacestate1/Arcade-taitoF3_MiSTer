@@ -59,6 +59,7 @@ module rf_sound_main
     input  logic        pause,          // hold this CPU too (MiSTer Pause button)
     // KIRAMEKI sound-ROM bank for the C20000 window (see the map above)
     input  logic  [2:0] snd_bank,
+    input  logic        snd_bank_en,   // low = linear, as every game but Kirameki
 
     // program ROM via rf_prog_bus on its own SDRAM channel
     input  logic        clk_ram,
@@ -285,7 +286,7 @@ module rf_sound_main
                             // is exactly {2'b10, bank[2:0], a[16:1]} in the
                             // 21-bit field: bit 20 is the 0x200000 byte base,
                             // bits 18:16 the 128 KB entry, 15:0 the offset.
-                            prog_addr <= (a[19:17] == 3'd1)
+                            prog_addr <= (snd_bank_en && a[19:17] == 3'd1)
                                        ? {2'b10, snd_bank, a[16:1]}
                                        : {2'b10, a[19:1]};      // SDRAM 0x200000 + offset
                             prog_req  <= 1'b1;

@@ -197,6 +197,8 @@ module rf_main
     output logic [15:0] pivot_wr_cnt,
     // KIRAMEKI's sound-ROM bank index, for rf_sound_main's 0xC20000 window
     output logic  [2:0] snd_bank_o,
+    // low until the game writes 0x300000; only Kirameki ever does
+    output logic        snd_bank_en_o,
 
     // write-ring dump port (UART side)
     input  logic [10:0] ring_raddr,
@@ -954,15 +956,30 @@ module rf_main
     // linear mapping this core already gives them. The wrap at 8 makes the
     // index three bits.
     logic [2:0] snd_bank;
+    // Belt and braces after the no-sound regression: the C20000 window uses
+    // the ordinary linear mapping until the game has actually WRITTEN the
+    // bank register. Only Kirameki Star Road ever does. So no other game can
+    // be affected by this path at all, whatever the reset value happens to
+    // be -- which is the property that was missing when it shipped broken.
+    logic       snd_bank_set;
     always_ff @(posedge clk) begin
-        if (reset) snd_bank <= 3'd0;
+        // RESETS TO 1, NOT 0. MAME sets the three sound-CPU windows with
+        // set_entry(i % max) for i = 0,1,2, so cpubank2 -- the C20000 window
+        // this index drives -- starts on ENTRY 1. Resetting it to 0 pointed
+        // that window at entry 0, so the sound 68000 executed the wrong
+        // 128 KB in EVERY game and no game had sound. Reported from a board
+        // 2026-09-08 against build 08154107: "installed the 20260908 version,
+        // however I didn't get any sound, reverted and got the sound back".
+        if (reset) begin snd_bank <= 3'd1; snd_bank_set <= 1'b0; end
         else if (cpu_wr && sel_sndbank && clkena) begin
             // a[6:2] is the longword offset; <<1 then &0x1e is a[5:2],0.
             // The low half being written adds one, exactly as ACCESSING_BITS_0_15.
-            snd_bank <= {a[4:2], 1'b0} + {2'd0, be[0]};
+            snd_bank     <= {a[4:2], 1'b0} + {2'd0, be[0]};
+            snd_bank_set <= 1'b1;
         end
     end
     assign snd_bank_o = snd_bank;
+    assign snd_bank_en_o = snd_bank_set;
 
     // ---- zone injector: the one write it intercepts -----------------------
     // 0x402312 (and its 128 KB mirror at 0x422312) is word 0x1189 of the RAM

@@ -722,6 +722,7 @@ wire        ring_full;
 // declaration becomes an implicit 1-bit wire, which would silently truncate
 // a 3-bit bank to one bit. This file has been bitten by that before.
 wire  [2:0] snd_bank;
+wire        snd_bank_en;
 
 wire [15:0] frame_cnt, irq2_cnt, irq3_cnt;
 wire [15:0] pf_wr_cnt, spr_wr_cnt, pal_wr_cnt, line_wr_cnt, txt_wr_cnt;
@@ -1244,7 +1245,7 @@ rf_main main
     .ring_ext_we(uart_mode == 2'd1 ? aud_ring_we : snd_ring_we),
     .ring_ext_data(uart_mode == 2'd1 ? aud_ring_data : snd_ring_data),
     .pivot_wr_cnt(pivot_wr_cnt),
-    .snd_bank_o(snd_bank)
+    .snd_bank_o(snd_bank), .snd_bank_en_o(snd_bank_en)
 );
 
 ////////////////////////  SOUND BOARD  ///////////////////////////
@@ -1281,7 +1282,7 @@ wire [15:0] es_rd_data;
 rf_sound_main sound
 (
     .clk(clk_sys), .reset(cpu_reset), .snd_reset(snd_reset), .pause(pause_eff),
-    .snd_bank(snd_bank),
+    .snd_bank(snd_bank), .snd_bank_en(snd_bank_en),
     .clk_ram(clk_ram),
     .ch_addr(ch5_addr), .ch_dout(ch5_dout), .ch_req(ch5_req), .ch_ready(ch5_ready),
     .dp_addr(snd_dp_addr), .dp_wdata(snd_dp_wdata), .dp_wren(snd_dp_wren),
