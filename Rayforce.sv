@@ -892,7 +892,32 @@ end
 
 // The self-test page is drawn in raster order and must stay flat, so
 // rotation and the vertical aspect are both forced off while it shows.
-wire       eff_no_rotate = no_rotate | selftest_on | cfg_horizontal;
+// Hold the output in its simplest, most lockable shape for the WHOLE ROM
+// download: unrotated, framebuffer out of the path, core video straight
+// through.
+//
+// Why. sys/arcade_video.v drives the framework's framebuffer from
+// no_rotate -- `fb_en <= {fb_en[1:0], ~no_rotate | flip}` -- so FB_EN
+// follows this wire. cfg_horizontal comes from the MRA config byte on
+// ioctl index 1, and index 1 sits AFTER index 0 in every MRA, so it lands
+// at the END of a 15-20 second ROM transfer. game_cfg is also cleared to 0
+// when a load begins, so every game starts the load claiming to be Ray
+// Force: vertical, rotated, framebuffer ON. A horizontal game therefore
+// switched the entire output pipeline OUT of the framebuffer at the moment
+// its config arrived -- a change of resolution, timing source and aspect
+// all at once, at the end of the load. A player on a RetroTINK 4K over DV1
+// reported no signal for the whole load, then the game appearing.
+//
+// Direct Video is a plain mux in sys_top.v that forwards the core's raw
+// timing to whatever is downstream, so nothing absorbs that change on the
+// way out. Holding no_rotate through the download means a horizontal game
+// now makes NO transition at all (it ends up unrotated anyway), and a
+// vertical game makes exactly one, at a moment when it has a stable signal
+// to move away from rather than a pipeline that has been switching under
+// it. Nothing is drawn during the download either way -- the CPU is held
+// in reset -- so this costs no picture.
+wire       dl_video_hold = ioctl_download | ~dl_seen;
+wire       eff_no_rotate = no_rotate | selftest_on | cfg_horizontal | dl_video_hold;
 
 assign VIDEO_ARX = (!ar) ? (eff_no_rotate ? 12'd4 : 12'd3) : (ar - 1'd1);
 assign VIDEO_ARY = (!ar) ? (eff_no_rotate ? 12'd3 : 12'd4) : 12'd0;
