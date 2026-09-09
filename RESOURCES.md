@@ -155,8 +155,14 @@ that still overflows says so.
 
 ## Building
 
-`build.sh` runs Quartus in a systemd scope at **MemoryHigh=9G, MemoryMax=9G,
-CPUWeight=80**. The two values are deliberately EQUAL:
+`build.sh` runs Quartus in a systemd scope at **MemoryHigh=10G, MemoryMax=10G,
+MemorySwapMax=0, CPUWeight=80**, and takes a `flock` on `/tmp/rayforce_build.lock` so a second
+build REFUSES to start rather than running alongside the first. This box has
+31 GB on paper but yields only ~9-10 GB to a new allocation, so a cap above
+that is documentation, not protection: the machine freezes in reclaim before
+the cgroup limit fires. It did exactly that on 2026-09-09 with the fitter
+running under a 20G cap. The measured fitter peak is 7.6-7.8 GB. The two
+memory values are deliberately EQUAL:
 
 > With `MemoryHigh=8G` under `MemoryMax=9G`, a build with a larger `NREC`
 > array reached 8 GB in `quartus_map`, was throttled **286,694 times** and
@@ -169,8 +175,9 @@ machine** -- files there occupy RAM and are not reclaimable like page cache;
 6 GB of another session's downloads sitting in `/tmp` is the most likely
 explanation for the machine lock-up that killed a build on 2026-09-02.
 
-`build_seeds.sh` is **stale and hazardous**: it still sets 11G/11G, the values
-that got builds killed. Set `SEED` in `Rayforce.qsf` and use `build.sh`.
+`build_seeds.sh` now shares the cap and the lock, but it is still **four full
+builds back to back** -- it holds the lock for hours. Prefer setting `SEED` in
+`Rayforce.qsf` and running `build.sh` once.
 Seeds matter only for the framework HDMI PLL, which has missed by -0.04 to
 -0.51 ns in many builds and is fitter variance, not a real path: seed 8 turned
 -0.514 into +0.124 on identical RTL. The two CORE clocks have never been the

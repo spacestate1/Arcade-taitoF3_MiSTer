@@ -1,10 +1,24 @@
 #!/bin/sh
-# Quick seed sweep — try a few seeds to close timing
+# Quick seed sweep — try a few seeds to close timing.
+#
+# NOTE: this is FOUR full builds, run one after another (~40 min each). It
+# takes the same lock as build.sh and uses the same 10G cap, so it can never
+# run alongside a build -- but it does hold the lock for hours.
 set -e
 cd "$(dirname "$0")"
 
 export QUARTUS_ROOTDIR=/storage01/tools/intelFPGA_lite/17.0/quartus
 export PATH="$QUARTUS_ROOTDIR/bin:$PATH"
+
+# One build at a time, shared with build.sh.
+LOCK=/tmp/rayforce_build.lock
+exec 9>>"$LOCK"
+if ! flock -n 9; then
+    echo "REFUSED: a Ray Force build is already running (pid $(cat "$LOCK" 2>/dev/null))." >&2
+    exit 1
+fi
+: > "$LOCK"
+echo $$ >&9
 
 SEEDS="3 8 11 13"
 BEST_SEED=""
@@ -16,7 +30,7 @@ for SEED in $SEEDS; do
 
     rm -rf db incremental_db output_files
     systemd-run --user --scope --quiet \
-        -p MemoryHigh=11G -p MemoryMax=11G -p CPUWeight=100 \
+        -p MemoryHigh=10G -p MemoryMax=10G -p MemorySwapMax=0 -p CPUWeight=80 \
         nice -n 5 quartus_sh --flow compile Rayforce > /tmp/rf_seed_$SEED.log 2>&1
 
     if [ -f output_files/Rayforce.sta.rpt ]; then
