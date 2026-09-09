@@ -793,14 +793,24 @@ module rf_main
     // the ring records this CPU's writes, or the sound CPU's chip writes
     // (ring_ext_*) when the UART option selects the sound ring; the write
     // count and hash (the Phase 1 proof) always follow this CPU
-    // the sound ring freezes on ITS 4096th entry (the init sequence, which
-    // is deterministic and so the best thing to compare), not the main
-    // CPU's, which passed 4096 during boot long before the sound CPU ran
-    logic [12:0] snd_wr_count;
-    wire         snd_frozen = snd_wr_count[12];
+    // The sound ring freezes on ITS Nth entry (the init sequence, which is
+    // deterministic and so the best thing to compare), not the main CPU's,
+    // which passed that count during boot long before the sound CPU ran.
+    //
+    // N was 4096 against a 512-entry ring, so the ring wrapped eight times
+    // and what survived was writes 3584..4095 -- a deterministic window, but
+    // NOT the start. Comparing it against MAME's stream from reset needs an
+    // alignment search, and that search saturates: Riding Fight (silent on
+    // the board) scored 58 and Grid Seeker (working) scored 59, so the
+    // comparison could not tell a broken game from a working one. Freezing
+    // at 512 makes the ring hold writes 0..511 -- the same entries MAME's
+    // stream opens with, comparable head-to-head with no alignment at all,
+    // which is what finding the FIRST divergence actually requires.
+    logic [9:0]  snd_wr_count;
+    wire         snd_frozen = snd_wr_count[9];
     always_ff @(posedge clk) begin
-        if (reset) snd_wr_count <= 13'd0;
-        else if (ring_ext_sel && ring_ext_we && !snd_frozen) snd_wr_count <= snd_wr_count + 13'd1;
+        if (reset) snd_wr_count <= 10'd0;
+        else if (ring_ext_sel && ring_ext_we && !snd_frozen) snd_wr_count <= snd_wr_count + 10'd1;
     end
     // ---- triggered capture (see ring_arm_en) -----------------------------
     // twr_a / twr_b are the tower palette blocks, declared with the region

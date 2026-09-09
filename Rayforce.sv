@@ -1762,7 +1762,7 @@ assign UART_TXD = (uart_mode == 2'd0) ? uart_log_txd : uart_ring_txd;
 
 // Audio Ring (UART Debug = Audio Ring): the first 4096 output samples after
 // the sound starts, i.e. AUDIO_L from the first sample whose magnitude
-// exceeds 256 once the sound CPU runs, into the write ring as entries
+// exceeds AUD_ARM once the sound CPU runs, into the write ring as entries
 // {lanes 11, address = sample index, data = the 16-bit sample}. 137 ms of
 // what the board actually plays, for tools/rf_audio_ring.py to turn into a
 // wav and correlate with the model's output for the same moment. Every
@@ -1771,6 +1771,15 @@ assign UART_TXD = (uart_mode == 2'd0) ? uart_log_txd : uart_ring_txd;
 // what the model computes, and tools/rf_audio_match.py reports the amplitude
 // ratio against MAME's own mix. Capturing the boosted signal would make that
 // ratio the boost setting instead of a verification result.
+// Arming threshold. It was 256, which is ABOVE some games' entire output:
+// Riding Fight never armed in 20 s of attract nor 22 s of gameplay, and I
+// read that silence as proof the game makes no sound. It is not proof --
+// the ES5505 model, fed this core's own sample bytes, plays that game at
+// RMS 4188, louder than Grid Seeker, which does arm. A threshold has to sit
+// below the quietest thing worth seeing, and this tap is PRE-boost where
+// the whole chain runs 25-30 dB below a normal core. 16 is still clear of a
+// silent line and three and a half octaves below where it was.
+localparam signed [15:0] AUD_ARM = 16'sd16;
 wire  signed [15:0] aud_l = snd_l;
 always_ff @(posedge clk_sys) begin
     aud_ring_we <= 1'b0;
@@ -1781,8 +1790,8 @@ always_ff @(posedge clk_sys) begin
         // released, so a capture is placed on the model's timeline (the
         // model's t = 0 is MAME's reset, ~2 s before the release)
         aud_idx <= aud_idx + 23'd1;
-        if (!aud_armed && (aud_l > 16'sd256 || aud_l < -16'sd256)) aud_armed <= 1'b1;
-        if (aud_armed || (aud_l > 16'sd256 || aud_l < -16'sd256)) begin
+        if (!aud_armed && (aud_l > AUD_ARM || aud_l < -AUD_ARM)) aud_armed <= 1'b1;
+        if (aud_armed || (aud_l > AUD_ARM || aud_l < -AUD_ARM)) begin
             aud_ring_we   <= 1'b1;
             aud_ring_data <= {2'b11, aud_idx, 15'd0, aud_l};
         end
