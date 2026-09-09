@@ -399,6 +399,21 @@ def load_stream(path):
     return out
 
 
+def load_rom_file(path):
+    """A prebuilt sample image in ES5505 word order, one byte per word.
+
+    load_rom() below only knows Ray Force / Gunlock, whose two 2 MB ROMs
+    happen to concatenate into exactly the compacted image. Every other F3
+    set has its own layout -- Riding Fight, Ring Rage, Arabian Magic and
+    Grid Seeker load the second ROM at region 0x600000, which is a 1 MB
+    hole in word space -- so those games need the image built for them.
+    tools/rf_stream_sum.py's assembler produces exactly these bytes as the
+    MRA's ensoniq slice, which is also what the core has in SDRAM: feeding
+    that here compares the model against the bytes the board actually holds.
+    """
+    return open(path, "rb").read()
+
+
 def load_rom(root):
     """The Ensoniq sample bytes in ES5505 word order: d66-01 then d66-02."""
     import zipfile
@@ -443,6 +458,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("dumpdir")
     ap.add_argument("--rom", default=".", help="directory holding gunlock.zip")
+    ap.add_argument("--rom-file", help="prebuilt sample image in ES5505 word "
+                    "order (one byte per word) -- required for any set whose "
+                    "ensoniq layout is not Ray Force's two contiguous ROMs")
     ap.add_argument("--seconds", type=float, default=5.0)
     ap.add_argument("--out", help="stereo 16-bit wav of a dry mix, at the ES5505 rate")
     ap.add_argument("--raw", help="the 8-channel 20-bit stream, 8 x int32 per sample")
@@ -450,13 +468,13 @@ def main():
     args = ap.parse_args()
     if args.dump_rom:
         with open(args.dump_rom, "wb") as f:
-            f.write(load_rom(args.rom))
+            f.write(load_rom_file(args.rom_file) if args.rom_file else load_rom(args.rom))
         print("rom ->", args.dump_rom)
         if not (args.out or args.raw):
             return
 
     stream = load_stream(os.path.join(args.dumpdir, "en_writes.txt"))
-    rom = load_rom(args.rom)
+    rom = load_rom_file(args.rom_file) if args.rom_file else load_rom(args.rom)
     print(f"{len(stream)} chip writes, {len(rom)} sample bytes")
     samples, rate = run(stream, rom, args.seconds)
     print(f"{len(samples)} samples at {rate} Hz")
