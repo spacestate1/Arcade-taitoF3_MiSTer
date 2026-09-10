@@ -25,11 +25,9 @@ breaks any of them is not a release.
 
 4. **Games must start on level 1.** No zone or level injection in a
    shipping MRA, and no MRA that pins UART Debug to a diagnostic mode.
-   Those exist -- `(zone 2)` and `(write ring)` variants -- but as of
-   2026-09-09 they live in `debug-mra/`, which is gitignored, NOT in
-   `releases/`. `releases/` contains only what ships, so `md5sums.txt`
-   describes exactly the shipped set and a clone cannot pick up a core that
-   starts on the wrong level or talks debug over the UART.
+   `releases/` contains only what ships, so `md5sums.txt` describes exactly
+   the shipped set and a clone cannot pick up a core that starts on the wrong
+   level or talks debug over the UART.
 
 5. **Refresh `md5sums.txt`.** Run `python3 tools/check_files.py --update`
    after changing anything in `releases/`, and `python3 tools/check_files.py`
