@@ -1,5 +1,5 @@
 game,mra,rom_zip,setname,screen,sdram_map,state
-Bubble Bobble II,Bubble Bobble II.mra,bublbob2.zip,bublbob2,horizontal,profile 0,plays on hardware; 20 frames pixel-exact vs MAME
+Bubble Bobble II,Bubble Bobble II.mra,bublbob2.zip,bublbob2,horizontal,profile 0,FIXED 2026-09-09 (pivot RAM); verified on hardware; 20 frames pixel-exact vs MAME
 Darius Gaiden,Darius Gaiden.mra,dariusg.zip,dariusg,horizontal,profile 0,plays; some background objects mis-coloured
 Elevator Action Returns,Elevator Action Returns.mra,elvactr.zip,elvactr,horizontal,profile 0,plays; ten frames pixel-exact vs MAME
 Gunlock,Gunlock.mra,gunlock.zip,gunlock,vertical,profile 0,built; never run on hardware
@@ -8,14 +8,14 @@ Ray Force (Japan),Ray Force (Japan).mra,gunlock.zip,rayforcej,vertical,profile 0
 Ray Force,Ray Force.mra,gunlock.zip,rayforce,vertical,profile 0,plays; verified against MAME
 Arabian Magic,experimental/Arabian Magic.mra,arabianm.zip,arabianm,horizontal,profile 0,renders and takes coins; never played through
 Arkanoid Returns,experimental/Arkanoid Returns.mra,arkretrn.zip,arkretrn,horizontal,profile 0,renders and takes coins; never played through
-Bubble Memories,experimental/Bubble Memories.mra,bubblem.zip,bubblem,horizontal,profile 0,24 frames pixel-exact vs MAME in sim; needs OSD Service Mode once to write its EEPROM
+Bubble Memories,experimental/Bubble Memories.mra,bubblem.zip,bubblem,horizontal,profile 0,FIXED 2026-09-09 (pivot RAM); runs on hardware; 24 frames pixel-exact vs MAME; needs OSD Service Mode once to write its EEPROM
 Cleopatra Fortune,experimental/Cleopatra Fortune.mra,cleopatr.zip,cleopatr,horizontal,profile 0,renders and takes coins; never played through
 Command War,experimental/Command War.mra,commandw.zip,commandw,horizontal,profile 1,renders and takes coins; never played through
 Dan-Ku-Ga,experimental/Dan-Ku-Ga.mra,dankuga.zip,dankuga,horizontal,profile 1,renders and takes coins; never played through
 Darius Gaiden (write ring),experimental/Darius Gaiden (write ring).mra,dariusg.zip,dariusg,horizontal,profile 0,debug variant; streams CPU writes over serial
 Darius Gaiden Extra Version,experimental/Darius Gaiden Extra Version.mra,dariusgx.zip,dariusgx,horizontal,profile 0,renders and takes coins; never played through
 Gekirindan,experimental/Gekirindan.mra,gekiridn.zip,gekiridn,vertical,profile 0,renders and takes coins; never played through
-Grid Seeker,experimental/Grid Seeker.mra,gseeker.zip,gseeker,vertical,profile 0,renders and takes coins; never played through
+Grid Seeker,experimental/Grid Seeker.mra,gseeker.zip,gseeker,vertical,profile 0,renders and takes coins; FIRE BUTTON DOES NOTHING (reported 2026-09-09)
 Gunlock (zone 2),experimental/Gunlock (zone 2).mra,gunlock.zip,gunlock,vertical,profile 0,debug variant; opens at zone 2
 International Cup 94,experimental/International Cup 94.mra,intcup94.zip,intcup94,horizontal,profile 1,renders and takes coins; never played through
 Kaiser Knuckle,experimental/Kaiser Knuckle.mra,kaiserkn.zip,kaiserkn,horizontal,profile 1,renders and takes coins; never played through
@@ -23,13 +23,13 @@ Land Maker,experimental/Land Maker.mra,landmakr.zip,landmakr,horizontal,profile 
 Light Bringer,experimental/Light Bringer.mra,lightbr.zip,lightbr,horizontal,profile 1,renders and takes coins; never played through
 Pop 'n Pop,experimental/Pop 'n Pop.mra,popnpop.zip,popnpop,horizontal,profile 0,renders and takes coins; never played through
 Puchi Carat,experimental/Puchi Carat.mra,puchicar.zip,puchicar,horizontal,profile 1,renders and takes coins; never played through
-Puzzle Bobble 3,experimental/Puzzle Bobble 3.mra,pbobble3.zip,pbobble3,horizontal,profile 0,renders and takes coins; never played through
-Puzzle Bobble 4,experimental/Puzzle Bobble 4.mra,pbobble4.zip,pbobble4,horizontal,profile 0,renders and takes coins; never played through
+Puzzle Bobble 3,experimental/Puzzle Bobble 3.mra,pbobble3.zip,pbobble3,horizontal,profile 0,renders and takes coins; first-line flicker reported (issue #4, open)
+Puzzle Bobble 4,experimental/Puzzle Bobble 4.mra,pbobble4.zip,pbobble4,horizontal,profile 0,renders and takes coins; character-select art looks wrong (issue #3, open)
 Quiz Theater,experimental/Quiz Theater.mra,qtheater.zip,qtheater,horizontal,profile 0,renders and takes coins; never played through
 Quiz de Hyuuhyuu,experimental/Quiz de Hyuuhyuu.mra,quizhuhu.zip,quizhuhu,horizontal,profile 1,renders and takes coins; never played through
 Ray Force (zone 2),experimental/Ray Force (zone 2).mra,gunlock.zip,rayforce,vertical,profile 0,debug variant; opens at zone 2
 Recalhorn,experimental/Recalhorn.mra,recalh.zip,recalh,horizontal,profile 0,renders and takes coins; never played through
-Riding Fight,experimental/Riding Fight.mra,ridingf.zip,ridingf,horizontal,profile 0,renders and takes coins; never played through
+Riding Fight,experimental/Riding Fight.mra,ridingf.zip,ridingf,horizontal,profile 0,renders and takes coins; NO SOUND (reported 2026-09-09)
 Ring Rage,experimental/Ring Rage.mra,ringrage.zip,ringrage,horizontal,profile 0,renders and takes coins; never played through
 Space Invaders '95,experimental/Space Invaders '95.mra,spcinv95.zip,spcinv95,vertical,profile 0,renders and takes coins; never played through
 Super Cup Finals,experimental/Super Cup Finals.mra,scfinals.zip,scfinals,horizontal,profile 1,renders and takes coins; never played through
@@ -38,3 +38,4 @@ Taito Power Goal,experimental/Taito Power Goal.mra,pwrgoal.zip,pwrgoal,horizonta
 Top Ranking Stars,experimental/Top Ranking Stars.mra,trstar.zip,trstar,horizontal,profile 1,renders and takes coins; never played through
 Twin Cobra II,experimental/Twin Cobra II.mra,tcobra2.zip,tcobra2,vertical,profile 1,renders and takes coins; never played through
 Twin Qix,experimental/Twin Qix.mra,twinqix.zip,twinqix,horizontal,profile 0,renders and takes coins; never played through
+Bubble Memories (bb3be alt program),experimental/Bubble Memories (bb3be alt program).mra,bubblembe.zip,bubblembe,horizontal,profile 0,alt 68020 program not in MAME; own game id 37; same pivot fix

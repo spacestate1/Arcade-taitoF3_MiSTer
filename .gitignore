@@ -63,3 +63,13 @@ build_id.v
 # MiSTer SD-card runtime artefacts written by the board, not source
 cfg/
 snap/
+
+# Debug-only MRAs: these force UART Debug to a diagnostic mode via the index-2
+# config byte (see "Darius Gaiden (write ring)"). They are bring-up tools, not
+# releases -- a player loading one gets a core with its debug channel pinned.
+# Keep them out of the repo entirely.
+# Debug-only MRAs live here, OUTSIDE releases/, so releases/ contains only
+# what ships and md5sums.txt describes exactly that. These force UART Debug to
+# a diagnostic mode or inject a start zone via the index-2 config byte: they
+# are bring-up tools, and a player loading one gets a core behaving oddly.
+debug-mra/

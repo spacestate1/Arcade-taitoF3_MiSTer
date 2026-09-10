@@ -239,7 +239,16 @@ module rf_selftest #(
            are being composed differently. No pass criterion: measurement. */ \
         5'd17: begin VAL = seq_rec01;  STA = !cpu_running ? ST_WAIT : ST_PASS; end \
         5'd18: begin VAL = seq_rec23;  STA = !cpu_running ? ST_WAIT : ST_PASS; end \
-        5'd19: begin VAL = seq_nspr01; STA = !cpu_running ? ST_WAIT : ST_PASS; end \
+        /* BORROWED 2026-09-09 (see tools/make_selftest_page.py): the CPU's  \
+           writes split by destination. The Bubble games corrupt the playfield \
+           on hardware while the same frames are 71680/71680 in simulation, so \
+           the wrong data is what the CPU writes, not what the renderer draws \
+           -- and the sim replays MAME's VRAM, so it can never see this. Both \
+           rows report; there is no expectation in RTL. Compare against MAME's \
+           counts for the same attract frame off-board. */                    \
+        5'd19: begin VAL = {pf_wr_cnt, spr_wr_cnt};                          \
+                 STA = !cpu_running ? ST_WAIT :                              \
+                       (pf_wr_cnt != 16'd0) ? ST_PASS : ST_BUSY; end         \
         5'd20: begin VAL = seq_nspr23; STA = !cpu_running ? ST_WAIT : ST_PASS; end \
         5'd26: VAL = build_hex;                                              \
         /* SPRFETCH:ROWMAX -- {longest single sprite gfx fetch in clocks,   \

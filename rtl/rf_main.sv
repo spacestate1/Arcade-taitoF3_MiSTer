@@ -56,6 +56,17 @@ module rf_main
     input  logic        clk,             // 53.372 MHz
     input  logic        reset,
 
+    // pivot store in SDRAM (rf_pivot_bus client). The pivot RAM is 64 KB on
+    // the F3 and will not fit in block RAM here; see rf_pivot_bus.sv.
+    input  logic        clk_ram,
+    output logic [26:1] piv_ch_addr,
+    output logic [15:0] piv_ch_din,
+    output logic  [1:0] piv_ch_be,
+    output logic        piv_ch_rnw,
+    output logic        piv_ch_req,
+    input  logic        piv_ch_ready,
+    input  logic [63:0] piv_ch_dout,
+
     // program ROM read port (rf_prog_bus client, line-cached SDRAM fetch)
     output logic [21:1] prog_addr,
     output logic        prog_req,
@@ -289,7 +300,8 @@ module rf_main
                     rom_wait <= 1'b0;
                     clkena   <= 1'b1;
                 end
-            end else if ((cpu_fast || !clkena) && !pause && !hs_pause && thr_go) begin
+            end else if ((cpu_fast || !clkena) && !pause && !hs_pause && thr_go
+                         && !piv_busy) begin
                 // pause: no further clock enables, so the CPU freezes between
                 // bus cycles (a ROM fetch in flight still completes above)
                 if (sel_rom && (busstate == 2'b00 || busstate == 2'b10)) begin
@@ -694,12 +706,39 @@ module rf_main
     // Ray Force is unaffected either way: it only ever clears this RAM, which
     // is what `pivot_wr_cnt` (the PIVOT WR self-test row) counts and proves
     // on every run.
+    // Port A is UNCHANGED: the CPU's read-back path, still 8 KB, still
+    // aliasing above that exactly as it always has. Port B is now unused --
+    // the video reads the full 64 KB store through rf_pivot_bus instead.
     rf_bram_tdp #(.AW(12)) u_pivot (
         .clk(clk),
         .a_addr(a[12:1]), .a_wdata(cpu_dout), .a_wren(cpu_wr && sel_pivot && clkena),
         .a_be(be), .a_q(pivot_q),
-        .b_addr(v_pivot_addr[11:0]), .b_wdata(16'd0), .b_wren(1'b0), .b_be(2'b00),
-        .b_q(v_pivot_q));
+        .b_addr(12'd0), .b_wdata(16'd0), .b_wren(1'b0), .b_be(2'b00),
+        .b_q());
+
+    // The row being displayed is implied by the address the video asks for
+    // (addr[8:4] = ys[7:3]), so nothing in rf_video_pivot has to change and
+    // the pipe bench is untouched.
+    wire piv_busy;
+    rf_pivot_bus u_pivot_bus (
+        .reset    (reset),
+        .clk_sys  (clk),
+        .cpu_addr (a[15:1]),
+        .cpu_din  (cpu_dout),
+        .cpu_be   (be),
+        .cpu_wr   (cpu_wr && sel_pivot && clkena),
+        .cpu_busy (piv_busy),
+        .row      (v_pivot_addr[8:4]),
+        .v_addr   (v_pivot_addr),
+        .v_q      (v_pivot_q),
+        .clk_ram  (clk_ram),
+        .ch_addr  (piv_ch_addr),
+        .ch_din   (piv_ch_din),
+        .ch_be    (piv_ch_be),
+        .ch_rnw   (piv_ch_rnw),
+        .ch_req   (piv_ch_req),
+        .ch_ready (piv_ch_ready),
+        .ch_dout  (piv_ch_dout));
 
     // ---- read mux --------------------------------------------------------
     // Registered one cycle to line up with the BRAM output, exactly like the

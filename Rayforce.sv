@@ -516,6 +516,17 @@ wire        ch5_req, ch5_ready;
 wire [26:1] ch6_addr;
 wire [63:0] ch6_dout;
 wire        ch6_req, ch6_ready;
+// ch8: the pivot store in SDRAM (rf_pivot_bus, inside rf_main). The F3's
+// pivot RAM is 64 KB and will not fit in block RAM here -- see PIVOT-RAM.md
+// and rf_pivot_bus.sv. Lowest priority: its fills have eight scanlines of
+// slack and must never delay a playfield or sprite fetch.
+wire [26:1] ch8_addr;
+wire [15:0] ch8_din;
+wire  [1:0] ch8_be;
+wire        ch8_rnw;
+wire [63:0] ch8_dout;
+wire        ch8_req, ch8_ready;
+
 // ch7: the sprite engine's SECOND fetch bus (see below)
 wire [26:1] ch7_addr;
 wire [63:0] ch7_dout;
@@ -642,7 +653,9 @@ sdram sdram
     .ch4_addr(ch4_addr), .ch4_dout(ch4_dout), .ch4_req(ch4_req), .ch4_ready(ch4_ready),
     .ch5_addr(ch5_addr), .ch5_dout(ch5_dout), .ch5_req(ch5_req), .ch5_ready(ch5_ready),
     .ch6_addr(ch6_addr), .ch6_dout(ch6_dout), .ch6_req(ch6_req), .ch6_ready(ch6_ready),
-    .ch7_addr(ch7_addr), .ch7_dout(ch7_dout), .ch7_req(ch7_req), .ch7_ready(ch7_ready)
+    .ch7_addr(ch7_addr), .ch7_dout(ch7_dout), .ch7_req(ch7_req), .ch7_ready(ch7_ready),
+    .ch8_addr(ch8_addr), .ch8_din(ch8_din), .ch8_be(ch8_be), .ch8_rnw(ch8_rnw),
+    .ch8_dout(ch8_dout), .ch8_req(ch8_req), .ch8_ready(ch8_ready)
 );
 
 ////////////////////  PROGRAM BUS + READBACK BIST  ///////////////
@@ -883,7 +896,8 @@ always_comb begin
         // 34 kaiserkn 35 dankuga  36 kirameki  -- all ROT0.
         // 32 tcobra2 is ROT270 (vertical) and is deliberately absent.
         6'd23, 6'd24, 6'd25, 6'd26, 6'd27, 6'd28, 6'd29, 6'd30,
-        6'd31, 6'd33, 6'd34, 6'd35, 6'd36: cfg_horizontal = 1'b1;
+        6'd31, 6'd33, 6'd34, 6'd35, 6'd36,
+        6'd37: cfg_horizontal = 1'b1;   // 37 bubblembe (Bubble Memories alt)
         // 0 rayforce  6 gunlock  7 rayforcej 11 gseeker
         // 12 spcinv95 18 gekiridn  -- and anything without an id yet
         default: cfg_horizontal = 1'b0;
@@ -973,6 +987,22 @@ always_comb begin
         6'd3: begin                                    // Bubble Memories
             exp_bytes = 32'h01280000; exp_sum  = 32'hA5923CBE;
             exp_bist  = 32'hC4BD753B; exp_hash = 32'hA81F4977;
+            exp_smp   = 32'h9C2DE26F;
+        end
+        6'd37: begin                                   // Bubble Memories, alt set
+            // bubblembe: stock bubblem graphics and sound, a DIFFERENT 68020
+            // program (all four maincpu CRCs absent from MAME 0.288). Sharing
+            // id 3 would judge this set's perfectly good stream against stock
+            // bubblem's sum and report FAIL -- the same trap Gunlock and Ray
+            // Force (Japan) were in until they left id 0 on 2026-09-01.
+            //
+            // exp_hash is 0 ON PURPOSE, which the row reads as "no
+            // expectation" and passes. The write hash can only be measured
+            // from a MAME trace, and MAME has no such set, so there is
+            // nothing honest to put here. exp_smp is stock bubblem's: the
+            // ensoniq ROMs are byte-identical.
+            exp_bytes = 32'h01280000; exp_sum  = 32'hB19D493C;
+            exp_bist  = 32'h901B8B78; exp_hash = 32'h00000000;
             exp_smp   = 32'h9C2DE26F;
         end
         6'd6: begin                                    // Gunlock (World)
@@ -1224,6 +1254,10 @@ rf_main main
 (
     .clk(clk_sys),
     .reset(cpu_reset),
+    .clk_ram(clk_ram),
+    .piv_ch_addr(ch8_addr), .piv_ch_din(ch8_din), .piv_ch_be(ch8_be),
+    .piv_ch_rnw(ch8_rnw),   .piv_ch_req(ch8_req), .piv_ch_ready(ch8_ready),
+    .piv_ch_dout(ch8_dout),
     .prog_addr(cpu_prog_addr), .prog_req(cpu_prog_req),
     .prog_data(prog_data), .prog_valid(prog_valid),
 

@@ -24,8 +24,12 @@ breaks any of them is not a release.
    of those switched on from an earlier session.
 
 4. **Games must start on level 1.** No zone or level injection in a
-   shipping MRA. The debug MRAs that do start elsewhere say so in their
-   filename and live in `releases/experimental/`.
+   shipping MRA, and no MRA that pins UART Debug to a diagnostic mode.
+   Those exist -- `(zone 2)` and `(write ring)` variants -- but as of
+   2026-09-09 they live in `debug-mra/`, which is gitignored, NOT in
+   `releases/`. `releases/` contains only what ships, so `md5sums.txt`
+   describes exactly the shipped set and a clone cannot pick up a core that
+   starts on the wrong level or talks debug over the UART.
 
 5. **Refresh `md5sums.txt`.** Run `python3 tools/check_files.py --update`
    after changing anything in `releases/`, and `python3 tools/check_files.py`
@@ -72,6 +76,22 @@ game's geometry with every bench still green. On 2026-09-08 nine of
 thirteen generated MRAs had the wrong game id and nothing caught it.
 
 ---
+
+## Rayforce_20260909
+
+- **Bubble Bobble II and Bubble Memories: the backgrounds and on-screen text
+  are no longer scrambled.** Level tiles were mispositioned and story text was
+  repeated across the screen. Fixes issue #5.
+- **New: Bubble Memories (bb3be alt program)** in `releases/experimental/`, an
+  alternate program ROM set.
+- Nothing else changes for any other game.
+
+Still broken, and not touched by this release: Riding Fight has no sound,
+Grid Seeker's fire button does nothing, Puzzle Bobble 4's character-select art
+is wrong (issue #3), Puzzle Bobble 3 has a flickering first line (issue #4).
+
+Why the Bubble games were broken, and what it cost to fix, is in PIVOT-RAM.md.
+This build uses all 553 block RAMs, so anything added next has to free some.
 
 ## Rayforce_20260908b.rbf
 

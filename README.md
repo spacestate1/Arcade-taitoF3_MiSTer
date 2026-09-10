@@ -24,10 +24,10 @@ needs sound-ROM banking the core does not implement.
 | **Ray Force** (US) | Plays with sound. The sprite corruption is fixed (2026-09-08): the sprite record store was declared two banks of 12,288 but Quartus built one 16,384-word RAM, so each frame's records overwrote the other frame's. Sized to 8,192 per bank it cannot alias. Some sprite rows drop on the zone 2 boss instead. |
 | **Gunlock** / **Ray Force (Japan)** | Same board, one program chip different. Built, not yet run on hardware. |
 | *Elevator Action Returns* | Plays. Ten frames match MAME pixel for pixel. Sound not yet checked. |
-| *Bubble Bobble II* | Plays on hardware. Frame-checked 2026-09-09: 20 frames pixel-exact MAME -> model -> RTL. |
-| *Puzzle Bobble 2, 3, 4* | All render on hardware. Never played through. |
+| *Bubble Bobble II* | Plays. Frame-checked: 20 frames pixel-exact MAME -> model -> RTL. The playfield/pivot corruption (issue #5) is FIXED in `Rayforce_20260909` -- the pivot RAM was 8 KB where the F3 has 64 KB. |
+| *Puzzle Bobble 2, 3, 4* | All render on hardware. Never played through. PB3's first-line flicker (issue #4) and PB4's character-select art (issue #3) are open and NOT addressed by the 2026-09-09 pivot fix. |
 | *Darius Gaiden* + *Extra Version* | Both render. Use the pixel layer, which this core only mirrors. |
-| *Bubble Memories* | Boots. Its EEPROM has never been written, so it asks for the TEST switch on a fresh card: OSD -> Service Mode -> reset, once. |
+| *Bubble Memories* | Runs. Same pivot fix as Bubble Bobble II. Its EEPROM has never been written, so it asks for the TEST switch on a fresh card: OSD -> Service Mode -> reset, once. |
 | *Arkanoid Returns, Grid Seeker, Space Invaders '95, Cleopatra Fortune, Twin Qix, Recalhorn, Quiz Theater, Pop 'n Pop, Gekirindan* | Render and take coins. Added 2026-09-08, none played through. |
 | *Arabian Magic, Riding Fight, Ring Rage* | Render. These are the 12-bit palette games. |
 | The 13 largest sets | MRAs written against the 42 MB map profile; **not yet confirmed** on hardware. |
@@ -60,6 +60,26 @@ nobody has played far enough to find a fault in — see the note on what
 - **BUBBLE MEMORIES — asks for the TEST switch on a fresh card.** Its 93C46
   EEPROM has never been written, so it boots to "BACKUP DATA FAILED". Turn on
   Service Mode in the OSD and reset, once. Not a fault in the game.
+- **RIDING FIGHT — no sound.** Reported from play 2026-09-09. Every stage
+  below the sound CPU's register writes is proven correct on this game's own
+  data: sample placement, region bases, bank arithmetic, the ES5505 RTL
+  (500,000 samples, 0 differences against the model), the mix, and the
+  MB87078. So the divergence is in what the sound 68000 writes. The two
+  instruments that can see it were fixed on 2026-09-09 (`AUD_ARM` 256 -> 16
+  and the sound-ring freeze 4096 -> 512) but have not been pointed at it yet.
+- **GRID SEEKER — the fire button does nothing.** Reported from play
+  2026-09-09. Not a wiring gap: `rf_main.sv` drives all four P1 buttons from
+  joystick bits 4-7, and MAME's port map for `gseeker` is identical to
+  Ray Force's. This set is unusual in three ways (a factory sprite-ROM patch,
+  a half-size mirrored sound ROM, and `extend=0`), none of which obviously
+  touches input. Unexplained.
+- **PUZZLE BOBBLE 3 — check the sample layout if audio sounds wrong.** MAME
+  puts its samples at 0x400000, 0x800000 and 0xc00000 inside a 16 MB ensoniq
+  region, one 2 MB ROM at the head of each 4 MB bank. The MRA packs them
+  consecutively after 2 MB of padding into the core's 8 MB slot and relies on
+  `cfg_bankmask = 3'd7` to compress the address space. That may be exactly
+  right, but it has never been verified against MAME's stream, and it is the
+  first thing to check if the music is wrong.
 - **KIRAMEKI STAR ROAD does not run and has no MRA.** It is the only F3 game
   whose sound ROM is banked; the core implements that now, but the set's 4 MB
   audiocpu region still needs a layout working out.

@@ -15,17 +15,17 @@ d02956376eaf9cffa71a594cb8be9823  Rayforce_20260831.rbf
 affa4758ac9db62b802a9c1564cfa7a0  Rayforce_20260907.rbf
 a65c68626cb8be25fdcb827488aa8d63  Rayforce_20260908.rbf
 aa3c9d9e3a0f19684d3550e4502eafb6  Rayforce_20260908b.rbf
+3222629045fc6568febb93a98a99411a  Rayforce_20260909.rbf
 297ec0641a10f0da08b67b9f8f31fb81  experimental/Arabian Magic.mra
 5c4ab8b202f493b4d90b6d9787ded793  experimental/Arkanoid Returns.mra
+f8cdaacbd150065ca69f35f639bbe6b8  experimental/Bubble Memories (bb3be alt program).mra
 03cbe49ac858bb2c6564d69887a448d8  experimental/Bubble Memories.mra
 ed542abe79760b4ac9925d3494d3083f  experimental/Cleopatra Fortune.mra
 af003dab3e31ded0090a4b45df2b809b  experimental/Command War.mra
 d8bbf59c3fc295afc1a874ff65fe232e  experimental/Dan-Ku-Ga.mra
-c9df376f0f19f6075c299ac45118d5c3  experimental/Darius Gaiden (write ring).mra
 24246fec24c6ca92bb73495a98205d7c  experimental/Darius Gaiden Extra Version.mra
 ac3411d7f66686ccf64f1cf379f9e724  experimental/Gekirindan.mra
 e424f721a73e552f4f7c439503b00c43  experimental/Grid Seeker.mra
-7e70052988acd5d1590a79454dcdad74  experimental/Gunlock (zone 2).mra
 650ca572959f6f325538b1fc476bee62  experimental/International Cup 94.mra
 64d884a41302944eff1e93fa8d54c75b  experimental/Kaiser Knuckle.mra
 5636f3188b1b3e83f3e78d6e0779427a  experimental/Land Maker.mra
@@ -36,7 +36,6 @@ ad52fe69fa236d531be7e2f5ba2b300b  experimental/Puchi Carat.mra
 17331cd39ba47eee6766407d9a94ba7b  experimental/Puzzle Bobble 4.mra
 f1faf4173f665b388de914d1be785bff  experimental/Quiz Theater.mra
 b602bafcc09e102d48de7bbd65b03c3d  experimental/Quiz de Hyuuhyuu.mra
-9dd0f5aee7aeefbd4c814e4722972997  experimental/Ray Force (zone 2).mra
 9dc45d745b4943bd4e10618f183c2a56  experimental/Recalhorn.mra
 23ebf30a11deaa28520bab7ad41f094d  experimental/Riding Fight.mra
 4d29798f02b2701e141badc8e87ae9e2  experimental/Ring Rage.mra

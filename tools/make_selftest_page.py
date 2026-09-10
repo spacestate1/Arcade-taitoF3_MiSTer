@@ -51,7 +51,18 @@ PAGE = [
     ("PAL HI : LO",                         1, 1),
     ("FOLDSEQ N  :N-1",                     1, 1),
     ("FOLDSEQ N-2:N-3",                     1, 1),
-    ("USEDSEQ N  :N-1",                     1, 1),
+    # BORROWED 2026-09-09 from USEDSEQ N:N-1 only, exactly as
+    # SPRFETCH:ROWMAX borrowed MIX:BUILD -- the page is 28 rows, so a new row
+    # costs an old one. Those two were measurement rows for the sprite
+    # corruption, whose root cause (rec store aliasing) is closed. Restore
+    # them here and in rf_selftest.sv if the sprite work reopens.
+    #
+    # WHY THESE: the Bubble games' playfield corrupts on hardware while the
+    # SAME frames render 71680/71680 in simulation, so the fault is in the
+    # VRAM the CPU writes, not in the renderer. Simulation replays MAME's
+    # VRAM and therefore cannot see it. These two rows split the CPU's writes
+    # by destination, which is the measurement nothing on the board makes.
+    ("PF WR  : SPR WR",                     1, 1),
     ("USEDSEQ N-2:N-3",                     1, 1),
     ("-- VIDEO PIPELINE / FRAME -----------", 0, 0),
     ("SPRFETCH:ROWMAX",                     1, 1),   # {longest single sprite gfx fetch in clocks, most rows drawn on one line}

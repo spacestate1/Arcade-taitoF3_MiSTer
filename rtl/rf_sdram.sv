@@ -99,7 +99,18 @@ module sdram
     input      [26:1] ch7_addr,
     output reg [63:0] ch7_dout,
     input             ch7_req,
-    output reg        ch7_ready
+    output reg        ch7_ready,
+
+    // ch8: the pivot store (rf_pivot_bus). READ/WRITE like ch3, lowest
+    // priority in the chain -- its fills have eight scanlines of slack and
+    // must never delay a playfield or sprite fetch.
+    input      [26:1] ch8_addr,
+    input      [15:0] ch8_din,
+    input       [1:0] ch8_be,
+    input             ch8_rnw,
+    output reg [63:0] ch8_dout,
+    input             ch8_req,
+    output reg        ch8_ready
 );
 
 // DQ drive in canonical explicit-OE form. The original wrote 16'bZ into an
@@ -160,7 +171,7 @@ localparam STATE_RFSH    = 10;
 
 
 always @(posedge clk) begin
-    reg [CAS_LATENCY+BURST_LENGTH+1:0] data_ready_delay1, data_ready_delay2, data_ready_delay3, data_ready_delay4, data_ready_delay5, data_ready_delay6, data_ready_delay7;
+    reg [CAS_LATENCY+BURST_LENGTH+1:0] data_ready_delay1, data_ready_delay2, data_ready_delay3, data_ready_delay4, data_ready_delay5, data_ready_delay6, data_ready_delay7, data_ready_delay8;
 
     reg        saved_wr;
     reg [12:0] cas_addr;
@@ -184,15 +195,20 @@ always @(posedge clk) begin
     // request is silently dropped and the client waits forever. This is
     // placement-dependent, which is why enabling ch4 (a refit) stalled the
     // CPU's ch3 fetches even though ch4 has the lowest priority here.
-    reg       ch1_req_s, ch2_req_s, ch3_req_s, ch4_req_s, ch5_req_s, ch6_req_s, ch7_req_s;
-    reg       ch1_req_1, ch2_req_1, ch3_req_1, ch4_req_1, ch5_req_1, ch6_req_1, ch7_req_1;
+    reg       ch1_req_s, ch2_req_s, ch3_req_s, ch4_req_s, ch5_req_s, ch6_req_s, ch7_req_s, ch8_req_s;
+    reg       ch1_req_1, ch2_req_1, ch3_req_1, ch4_req_1, ch5_req_1, ch6_req_1, ch7_req_1, ch8_req_1;
+    reg       ch8_rq;
+    reg [26:1] ch8_addr_1;
+    reg [15:0] ch8_din_1;
+    reg  [1:0] ch8_be_1;
+    reg        ch8_rnw_1;
     reg       ch1_rq, ch2_rq, ch3_rq, ch4_rq, ch5_rq, ch6_rq, ch7_rq;
     // Which of the two sprite channels gets first refusal this time. They
     // MUST alternate rather than sit at fixed priority -- see the note at
     // the ch4/ch7 arm below; a strict order makes the pair worse than the
     // single shared channel they replaced.
     reg       spr_tog;
-    reg [2:0] ch;
+    reg [3:0] ch;
 
     reg        ch3_rnw_1;
     reg [26:1] ch3_addr_1;
@@ -210,6 +226,9 @@ always @(posedge clk) begin
     ch7_req_s <= ch7_req;  ch7_req_1 <= ch7_req_s;
     
     ch3_rnw_1  <= ch3_rnw;
+    ch8_req_s <= ch8_req;  ch8_req_1 <= ch8_req_s;
+    ch8_addr_1 <= ch8_addr;  ch8_din_1 <= ch8_din;
+    ch8_be_1   <= ch8_be;    ch8_rnw_1 <= ch8_rnw;
     ch3_addr_1 <= ch3_addr;
     ch3_din_1  <= ch3_din;
     ch3_be_1   <= ch3_be;
@@ -223,6 +242,7 @@ always @(posedge clk) begin
     if (ch5_req_s & ~ch5_req_1) ch5_rq <= 1;
     if (ch6_req_s & ~ch6_req_1) ch6_rq <= 1;
     if (ch7_req_s & ~ch7_req_1) ch7_rq <= 1;
+    if (ch8_req_s & ~ch8_req_1) ch8_rq <= 1;
 
     ch1_ready <= 0;
     ch2_ready <= 0;
@@ -231,6 +251,7 @@ always @(posedge clk) begin
     ch5_ready <= 0;
     ch6_ready <= 0;
     ch7_ready <= 0;
+    ch8_ready <= 0;
 
     refresh_count <= refresh_count+1'b1;
 
@@ -241,6 +262,7 @@ always @(posedge clk) begin
     data_ready_delay5 <= data_ready_delay5>>1;
     data_ready_delay6 <= data_ready_delay6>>1;
     data_ready_delay7 <= data_ready_delay7>>1;
+    data_ready_delay8 <= data_ready_delay8>>1;
 
     dq_reg <= SDRAM_DQ;
 
@@ -285,6 +307,12 @@ always @(posedge clk) begin
     if(data_ready_delay7[2]) ch7_dout[47:32] <= dq_reg;
     if(data_ready_delay7[1]) ch7_dout[63:48] <= dq_reg;
     if(data_ready_delay7[1]) ch7_ready <= 1;
+
+    if(data_ready_delay8[4]) ch8_dout[15:00] <= dq_reg;
+    if(data_ready_delay8[3]) ch8_dout[31:16] <= dq_reg;
+    if(data_ready_delay8[2]) ch8_dout[47:32] <= dq_reg;
+    if(data_ready_delay8[1]) ch8_dout[63:48] <= dq_reg;
+    if(data_ready_delay8[1]) ch8_ready <= 1;
 
     dq_drv_oe <= 1'b0;
 
@@ -445,6 +473,23 @@ always @(posedge clk) begin
                 command    <= CMD_ACTIVE;
                 state      <= STATE_WAIT;
             end
+            // LAST in the chain ON PURPOSE. A pivot fill is 256 bursts every
+            // eight scanlines and has a whole cell row of slack; ch6 (ES5505
+            // samples) and ch7 (sprite fetch) have hard deadlines. Putting
+            // ch8 above ch6 made Puzzle Bobble 3's music audibly swishy.
+            else if(ch8_rq) begin
+                chip       <= ch8_addr_1[26];
+                saved_data <= ch8_din_1;
+                saved_wr   <= ~ch8_rnw_1;
+                ch         <= 7;
+                ch8_rq     <= 0;
+                if (ch8_rnw_1)
+                    {cas_addr[12:9],SDRAM_BA,SDRAM_A,cas_addr[8:0]} <= {2'b00, 1'b1, ch8_addr_1[25:1]};
+                else
+                    {cas_addr[12:9],SDRAM_BA,SDRAM_A,cas_addr[8:0]} <= {~ch8_be_1, 1'b1, ch8_addr_1[25:1]};
+                command    <= CMD_ACTIVE;
+                state      <= STATE_WAIT;
+            end
             else if (doRefresh_1) begin
                 state         <= STATE_RFSH;
                 command       <= CMD_AUTO_REFRESH;
@@ -467,6 +512,7 @@ always @(posedge clk) begin
                 if(ch == 4) ch5_ready  <= 1;
                 if(ch == 5) ch6_ready  <= 1;
                 if(ch == 6) ch7_ready  <= 1;
+                if(ch == 7) ch8_ready  <= 1;
                 state <= STATE_IDLE_2;
             end
             else begin
@@ -478,7 +524,8 @@ always @(posedge clk) begin
                 else if(ch == 3) data_ready_delay4[CAS_LATENCY+BURST_LENGTH+1] <= 1;
                 else if(ch == 4) data_ready_delay5[CAS_LATENCY+BURST_LENGTH+1] <= 1;
                 else if(ch == 5) data_ready_delay6[CAS_LATENCY+BURST_LENGTH+1] <= 1;
-                else             data_ready_delay7[CAS_LATENCY+BURST_LENGTH+1] <= 1;
+                else if(ch == 6) data_ready_delay7[CAS_LATENCY+BURST_LENGTH+1] <= 1;
+                else             data_ready_delay8[CAS_LATENCY+BURST_LENGTH+1] <= 1;
             end
         end
       
