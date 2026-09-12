@@ -145,15 +145,18 @@ module rf_ddr_arb
 );
 
     // ---- rotation's write FIFO ------------------------------------------
-    // Registers, not an inferred RAM: an async-read store here would be an
-    // MLAB, an MLAB is a LAB, and LABs are what this design runs out of
-    // first (see RESOURCES.md). 8 x 101 bits is small enough to spend flops.
+    // MLAB, explicitly. The comment here used to say "registers, not an
+    // inferred RAM" -- Quartus inferred a RAM anyway and put these 16 x 101
+    // bits into FOUR M10K blocks (fit report, 2026-09-09: 16x48, 16x24 and
+    // 16x8 altsyncrams under rf_ddr_arb). M10K is the resource at 553/553;
+    // six MLABs is six LABs, and it gives the YC encoder's sine table the
+    // blocks it needs.
     localparam int FD = 16;                      // power of two
     localparam int AW = $clog2(FD);
 
-    logic [28:0] q_addr [0:FD-1];
-    logic [63:0] q_din  [0:FD-1];
-    logic  [7:0] q_be   [0:FD-1];
+    (* ramstyle = "MLAB" *) logic [28:0] q_addr [0:FD-1];
+    (* ramstyle = "MLAB" *) logic [63:0] q_din  [0:FD-1];
+    (* ramstyle = "MLAB" *) logic  [7:0] q_be   [0:FD-1];
     logic [AW:0] wptr, rptr;                     // one spare bit for full
 
     wire [AW:0] fcnt   = wptr - rptr;
@@ -193,7 +196,20 @@ module rf_ddr_arb
     // ---- the mux --------------------------------------------------------
     // Rotation first, and now it holds the port until the write is actually
     // taken rather than offering it for one cycle and hoping.
-    wire grant_r = !fempty;
+    // An F write BURST holds the port for its beats: the flip's writer in
+    // rf_video_pipe sends eight a command (2026-09-10), and a rotation word
+    // slotted between two of them would break the burst. Rotation waits in
+    // its FIFO for at most seven beats. (The flip forces rotation off while
+    // it runs anyway; this is for the frame where both are changing over.)
+    logic [3:0] fw_left;
+    always_ff @(posedge clk) begin
+        if (reset) fw_left <= 4'd0;
+        else if (!DDRAM_BUSY && grant_f && f_we) begin
+            if (fw_left != 4'd0) fw_left <= fw_left - 4'd1;
+            else if (f_burstcnt > 8'd1) fw_left <= f_burstcnt[3:0] - 4'd1;
+        end
+    end
+    wire grant_r = !fempty && (fw_left == 4'd0);
     wire f_want  = f_we | f_rd;
     wire grant_f = ~grant_r & f_want;
 

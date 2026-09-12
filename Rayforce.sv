@@ -205,7 +205,20 @@ localparam CONF_STR = {
     "O[122:121],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
     "O[7:6],Rotate,CW (TATE),CCW,None;",
     "O[14],Flip Screen,Off,On;",
-    "O[10:8],Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
+    // The analog output upside down, for a CRT mounted the other way. Flip
+    // Screen above only reaches HDMI (it acts on the rotation framebuffer,
+    // which the analog output never passes through); this one buffers a
+    // frame in DDR3 and reads it back reversed -- see rf_out_flip.sv. One
+    // frame of latency while on, and it forces Rotate off so the shared
+    // DDR3 port is not carrying the rotation writes as well.
+    "O[21],Flip Analog Out,Off,On;",
+    // NO Scandoubler Fx entry. The logic behind it is tied off (see
+    // scandoubler_fx below) to pay for the sprite record store, so the menu
+    // line was offering a control that did nothing -- reported from play on
+    // three separate games, 2026-09-11, each time as a fault. status[10:8]
+    // stays reserved so a saved config keeps its meaning if it is restored.
+    // MiSTer's own Shadow Mask / Gamma / Scaling Filter still work and are
+    // the way to get a CRT look on HDMI.
     "O[11],Refresh Rate,58.9Hz Native,60Hz;",
     "-;",
     "O[13:12],Stereo Mix,None,25%,50%,100% (Mono);",
@@ -435,6 +448,7 @@ wire       video_rotated;
 // there is nothing to flip. Doing it in the renderer instead would desync
 // the sprites, which carry their own flip bit from the sprite command word.
 wire       flip_screen = status[14];
+wire       out_flip    = status[21];    // rf_out_flip: the analog output upside down
 // Pause When OSD Open (OSD): freeze the game -- both CPUs -- while the menu
 // is up, the way a cabinet's pause would.
 wire       pause_osd   = status[15];
@@ -904,6 +918,21 @@ always_comb begin
     endcase
 end
 
+// Kaiser Knuckle (34) and Dan-Ku-Ga (35) are the library's two 6-button
+// fighters -- the standard 3 punches + 3 kicks, as GitHub issue #9 says.
+// Buttons 4-6 are NOT in IN.0 beside the first three: MAME's port map puts
+// them in IN.4 (P2) and IN.5 (P1), which every other F3 game uses for P3/P4.
+// Verified on both sets with tools/mame/ports.lua, 2026-09-11. Taken from the
+// game id rather than a new MRA bit, the same way cfg_horizontal is, so an
+// existing MRA needs no change beyond its button names.
+logic cfg_six_button;
+always_comb begin
+    case (cfg_game)
+        6'd34, 6'd35: cfg_six_button = 1'b1;
+        default:      cfg_six_button = 1'b0;
+    endcase
+end
+
 // The self-test page is drawn in raster order and must stay flat, so
 // rotation and the vertical aspect are both forced off while it shows.
 // Hold the output in its simplest, most lockable shape for the WHOLE ROM
@@ -931,7 +960,11 @@ end
 // it. Nothing is drawn during the download either way -- the CPU is held
 // in reset -- so this costs no picture.
 wire       dl_video_hold = ioctl_download | ~dl_seen;
-wire       eff_no_rotate = no_rotate | selftest_on | cfg_horizontal | dl_video_hold;
+// out_flip: the analog flip buffers the raster through the same DDR3 port
+// the rotation framebuffer writes through (rf_ddr_arb), and rotation's 320
+// single-beat writes a line would leave it no room; a CRT player has no
+// use for the rotated HDMI picture while it is on.
+wire       eff_no_rotate = no_rotate | selftest_on | cfg_horizontal | dl_video_hold | out_flip;
 
 assign VIDEO_ARX = (!ar) ? (eff_no_rotate ? 12'd4 : 12'd3) : (ar - 1'd1);
 assign VIDEO_ARY = (!ar) ? (eff_no_rotate ? 12'd3 : 12'd4) : 12'd0;
@@ -1262,7 +1295,7 @@ rf_main main
     .prog_data(prog_data), .prog_valid(prog_valid),
 
     .vbl_rise(vbl_rise),
-    .j0(joy0_in), .j1(joy1_in),
+    .j0(joy0_in), .j1(joy1_in), .six_button(cfg_six_button),
     .pause(pause_eff),
     .test_sw(service_on),
     .nv_wr(nv_wr), .nv_addr(nv_addr), .nv_data(nv_data),
@@ -1286,6 +1319,7 @@ rf_main main
     .pf_wr_cnt(pf_wr_cnt), .spr_wr_cnt(spr_wr_cnt), .spr_wr_stb(spr_wr_stb),
     .pal_wr_cnt(pal_wr_cnt),
     .pal_wr_hi(pal_wr_hi), .pal_wr_lo(pal_wr_lo), .line_wr_cnt(line_wr_cnt),
+    .vid_vcnt(vid_vcnt), .vctrl_wr_dbg(vctrl_wr_dbg),
     .cpu_speed(cpu_speed), .cpu_spin(cpu_spin),
     .zone_inj(game_cfg[4:3]),          // MRA index 1 bits [4:3]: start zone 2..4
     .txt_wr_cnt(txt_wr_cnt),
@@ -1637,9 +1671,11 @@ wire        spr_wr_stb;       // CPU write to sprite RAM (rf_main)
 wire [31:0] vid_dbg_tear;     // {writes during the walk, frames affected}
 wire [31:0] vid_seq_rec01, vid_seq_rec23, vid_seq_nspr01, vid_seq_nspr23, vid_seq_ovr;
 wire [31:0] vid_seq_fold01, vid_seq_fold23, vid_seq_used01, vid_seq_used23;
+logic [31:0] vid_dbg_flip;           // rf_out_flip: {reader late lines, writer late lines}
+logic [15:0] vid_dbg_flush;          // rf_ddr_tag_mux: watchdog flushes
+wire [31:0] vctrl_wr_dbg;           // rf_main: {min line, max line, count} of scroll-register writes
 wire [15:0] spr_short_cnt;    // a line's read came back short (kept wired for
                               // the next investigation; not on the page now)
-wire        _unused_spr_short = &{1'b0, spr_short_cnt};
 // The rotation instruments stay in the RTL (the FIFO is a real fix for a real
 // Avalon violation) but are off the page now that the port is exonerated.
 wire        _unused_rot = &{1'b0, rot_stall_cnt, rot_lost_cnt, rot_peak_cnt};
@@ -1718,6 +1754,14 @@ rf_video_pipe vpipe
     .ddr_be(fb_be), .ddr_we(fb_we), .ddr_rd(fb_rd),
     .ddr_busy(fb_busy), .ddr_dout(fb_dout), .ddr_dout_ready(fb_dout_ready)
 );
+// DIAGNOSTIC BUILD 2026-09-11: rf_video_pipe is reverted to its committed
+// shape to find the Darius Gaiden stale-palette regression. The bisect put it
+// between flip_11083215 (clean) and btn_11111210 (red), and bypassing the tag
+// mux and the 3-bank line buffer (build 11214427) did NOT fix it -- so the
+// cause is elsewhere in this file's flip work. With the whole thing out, a
+// clean Zone A proves that; a red one clears the file entirely.
+assign vid_dbg_flip  = 32'd0;
+assign vid_dbg_flush = 16'd0;
 
 ///////////////////  SELF TEST PAGE + UART DEBUG  ////////////////
 //
@@ -1763,9 +1807,17 @@ rf_selftest selftest
     // RECSEQ / NSPRSEQ proved the prepass identical frame to frame on a
     // paused glitch (2026-09-07 evening); rows 17-20 now carry FOLDSEQ and
     // USEDSEQ, which split the DRAW from the MIXER.
-    .seq_rec01(vid_seq_fold01), .seq_rec23(vid_seq_fold23),
-    .seq_nspr01(vid_seq_used01), .seq_nspr23(vid_seq_used23),
-    ._unused_seq(&{1'b0, vid_seq_rec01, vid_seq_rec23, vid_seq_nspr01, vid_seq_nspr23}),
+    // rows 17 and 18 (FOLDSEQ) are BORROWED, 2026-09-10: VCTRL MIN:MAX:N
+    // (where in the frame the CPU writes scroll) and FLIP LATE:WLATE
+    .seq_rec01(vctrl_wr_dbg), .seq_rec23(vid_dbg_flip),
+    // row 20 BORROWED 2026-09-11 from USEDSEQ N-2:N-3 (sprite corruption:
+    // closed): FLUSH:SHORT, the tag mux's watchdog flushes and rf_spr_fb's
+    // reads that under-delivered. Both zero means the DDR3 port keeps its
+    // burst contract, so a late flip is BANDWIDTH; non-zero means the
+    // ordering was lost and a late flip is DESYNC. That is the one
+    // distinction the FLIP row cannot make on its own.
+    .seq_nspr01(vid_seq_used01), .seq_nspr23({vid_dbg_flush, spr_short_cnt}),
+    ._unused_seq(&{1'b0, vid_seq_rec01, vid_seq_rec23, vid_seq_nspr01, vid_seq_nspr23, vid_seq_fold01, vid_seq_fold23, vid_seq_used23}),
     .pal_wr_hi(pal_wr_hi), .pal_wr_lo(pal_wr_lo),
     .line_wr_cnt(line_wr_cnt), .txt_wr_cnt(txt_wr_cnt),
     .build_hex(`RF_BUILD_HEX),
@@ -1905,7 +1957,10 @@ screen_rotate screen_rotate
 
     .rotate_ccw(rotate_ccw),
     .no_rotate(eff_no_rotate),
-    .flip(flip_screen),
+    // screen_rotate re-enables its framebuffer for flip even with no_rotate
+    // (`fb_en <= ~no_rotate | flip`), which would put rotation's writes back
+    // on the DDR3 port the analog flip needs; the analog flip flips HDMI too.
+    .flip(flip_screen & ~out_flip),
     .video_rotated(video_rotated),
 
     .FB_EN(FB_EN), .FB_FORMAT(FB_FORMAT),

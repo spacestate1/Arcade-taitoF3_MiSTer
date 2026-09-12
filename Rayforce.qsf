@@ -57,13 +57,18 @@ set_global_assignment -name VERILOG_MACRO "MISTER_FB=1"
 # geometry Puzzle Bobble 2, Darius Gaiden, Cleopatra Fortune, Grid Seeker,
 # Space Invaders '95 and Gekirindan all need). These cut MiSTer framework
 # logic, not core logic, so no game behaviour changes:
-#   YC       - the composite / S-video colour-burst encoder. Only matters if
-#              you drive a CRT off the board's analog output; HDMI and VGA
-#              are unaffected. Turn this back on if you need Y/C.
 #   ADAPTIVE - ascal's adaptive scanline filter. A video option, not a
 #              rendering feature.
-set_global_assignment -name VERILOG_MACRO "MISTER_DISABLE_YC=1"
+#   ALSA     - the HPS audio-in stream (MT32-pi and friends). An arcade
+#              core never hears it. ~300 ALMs, which is what YC costs.
+#   YC       - the composite / S-video colour-burst encoder -- was OFF until
+#              2026-09-10. It is the only way a composite-only CRT (JVC
+#              TM-950DU) gets colour off the analog output, so it is back
+#              ON, paid for by ALSA above and by moving three tiny FIFOs
+#              out of M10K (rf_ddr_arb, rf_uart_log): its sine table needs
+#              three blocks and the design was at 553/553.
 set_global_assignment -name VERILOG_MACRO "MISTER_DISABLE_ADAPTIVE=1"
+set_global_assignment -name VERILOG_MACRO "MISTER_DISABLE_ALSA=1"
 
 #enable it only if 8bit indexed mode is used in core
 #set_global_assignment -name VERILOG_MACRO "MISTER_FB_PALETTE=1"

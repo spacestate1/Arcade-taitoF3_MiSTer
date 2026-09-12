@@ -171,7 +171,9 @@ int main(int argc, char** argv) {
     const int DDR_LAT    = getenv("F3_DDR_LAT")  ? atoi(getenv("F3_DDR_LAT"))  : 40;
     const int DDR_BUSY_N = getenv("F3_DDR_BUSY") ? atoi(getenv("F3_DDR_BUSY")) : 7;
     // pixel banks + the per-line checksum words after them
-    std::vector<uint64_t> ddr(2 * 256 * 80 + 2 * 256, 0);
+    // 0x40000 words: the sprite framebuffer and its checksums at +0, the
+    // output flip's two frames at +0x20000 (0x30100000 in bytes)
+    std::vector<uint64_t> ddr(0x40000, 0);
     std::deque<std::pair<long long, uint64_t>> ddr_q;   // (ready cycle, data)
     long long ddr_cyc = 0;
     // Every command costs DDR_CMD cycles of BUSY before the next is taken --
@@ -190,6 +192,9 @@ int main(int argc, char** argv) {
     const int DDR_CORRUPT = getenv("F3_DDR_CORRUPT") ? atoi(getenv("F3_DDR_CORRUPT")) : 0;
     long long rd_beats = 0;
     int ddr_hold = 0;
+    // a write burst: the first beat carries the address and the command
+    // cost, the rest follow at consecutive words on any non-stalled cycle
+    int wb_left = 0; uint32_t wb_addr = 0;
     auto ddr_tick = [&]() {
         int busy = ddr_hold > 0 ||
                    ((DDR_BUSY_N > 0) && ((ddr_cyc % DDR_BUSY_N) == 0));
@@ -197,7 +202,17 @@ int main(int argc, char** argv) {
         if (ddr_hold > 0) ddr_hold--;
         if (!busy) {
             uint32_t a = t->ddr_addr - DDR_BASE;
-            if (t->ddr_we && a < ddr.size()) { ddr[a] = t->ddr_din; ddr_hold = DDR_CMD; }
+            if (t->ddr_we) {
+                if (wb_left > 0) {
+                    if (wb_addr < ddr.size()) ddr[wb_addr] = t->ddr_din;
+                    wb_addr++; wb_left--;
+                } else {
+                    if (a < ddr.size()) ddr[a] = t->ddr_din;
+                    ddr_hold = DDR_CMD;
+                    int nb = t->ddr_burstcnt ? t->ddr_burstcnt : 1;
+                    if (nb > 1) { wb_left = nb - 1; wb_addr = a + 1; }
+                }
+            }
             if (t->ddr_rd) {
                 int nb = t->ddr_burstcnt ? t->ddr_burstcnt : 1;
                 // The f2sdram bridge is Avalon-MM and CAPS its burst. Asking
@@ -277,6 +292,11 @@ int main(int argc, char** argv) {
     // every game with dumps in this tree today is extend=1
     { const char* e = getenv("F3_EXTEND"); t->extend = (e && !strcmp(e, "0")) ? 0 : 1; }
 
+    // F3_OUT_FLIP=1: the analog flip. The displayed frame is then LAST
+    // frame's raster upside down, so with the VRAM static the compared
+    // frame must equal the reference rotated 180 degrees.
+    const int out_flip = getenv("F3_OUT_FLIP") ? atoi(getenv("F3_OUT_FLIP")) : 0;
+    t->out_flip = out_flip;
     t->reset = 1; t->flip = 1; t->rate_60 = rate60;
     for (int w = 0; w < 4; w++) { t->ctrl0[w] = ctrl[2 * w] | ((uint32_t)ctrl[2 * w + 1] << 16);
                                   t->ctrl1[w] = ctrl[8 + 2 * w] | ((uint32_t)ctrl[9 + 2 * w] << 16); }
@@ -311,7 +331,7 @@ int main(int argc, char** argv) {
     // ---- frame-to-frame stability, with the VRAM static ------------------
     // Priming frames are skipped: the sprite ring and the framebuffer both
     // need a frame or two before their content means anything.
-    const int PRIME = 2;   // include the priming transitions: a frame_start landing mid-draw is exactly the abandoned-line case
+    const int PRIME = out_flip ? 4 : 2;   // include the priming transitions: a frame_start landing mid-draw is exactly the abandoned-line case
     int unstable = 0;
     printf("\n-- frame-to-frame stability (static VRAM: every frame must equal the last) --\n");
     for (size_t f = PRIME; f < snaps.size(); f++) {
@@ -340,15 +360,20 @@ int main(int argc, char** argv) {
         printf("   stable: every frame after priming is identical to the one before\n");
     printf("\n");
 
+    if (out_flip)
+        printf("output flip ON: comparing against the reference rotated 180 degrees; FLIP LATE:WLATE = %08x  spr_fb SHORT = %04x  STALELN:AGE:CNT = %08x\n",
+               t->dbg_flip, t->dbg_short, t->dbg_sprpix);
     int bad = 0, total = 0, shown = 0;
     for (int sy = V_START; sy < V_END; sy++) {
-        if (ref[sy].size() != 320) continue;
+        const int rsy = out_flip ? (V_START + V_END - 1 - sy) : sy;
+        if (ref[rsy].size() != 320) continue;
         for (int x = 0; x < 320; x++) {
             total++;
-            uint32_t got = fb[(sy - V_START) * 320 + x];
-            if (got != ref[sy][x]) {
+            uint32_t got  = fb[(sy - V_START) * 320 + x];
+            uint32_t want = ref[rsy][out_flip ? (319 - x) : x];
+            if (got != want) {
                 bad++;
-                if (shown < 6) { printf("  sy=%d x=%d: rtl %06x ref %06x\n", sy, x, got, ref[sy][x]); shown++; }
+                if (shown < 6) { printf("  sy=%d x=%d: rtl %06x ref %06x\n", sy, x, got, want); shown++; }
             }
         }
     }

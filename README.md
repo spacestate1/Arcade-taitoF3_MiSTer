@@ -48,15 +48,29 @@ nobody has played far enough to find a fault in — see the note on what
   corruption — the self-test's `SPR REC : DROP` counts them. The full story
   of the corruption this replaced — nine days, ~30 instruments, one wrong RAM
   size — is in [SPRITE-CORRUPTION.md](SPRITE-CORRUPTION.md).
-- **DARIUS GAIDEN — some background objects render in the wrong colours**
-  until the game rewrites its palette. Reported from play: the big foreground
-  towers early in the first level are red and gold where they should be
-  blue-grey steel, and the SAME objects correct themselves on screen as the
-  boss arrives. Measured: the sprites' positions, zoom and tile codes are all
-  right and only the colour is wrong; the palette writes do reach palette RAM;
-  and the core's 68020 completes 600 spin-loop reads per frame where real
-  hardware does 764, so a palette block-copy budgeted against real hardware
-  may not finish in the frames the game expects. Not proven.
+- **DARIUS GAIDEN — background objects in the wrong colours: FIXED.** Zone A's
+  foreground towers rendered red and gold instead of blue-grey steel until the
+  boss arrived and the game rewrote its palette. **The colours were never
+  corrupt — they were the game's own palette content from a few frames
+  earlier**, matched byte-for-byte against MAME's frame-604 dump. Zone A entry
+  makes 39 palette-copy requests into a 32-entry queue and the game's own
+  enqueue routine discards the excess in silence (ROM 0x167C), and which
+  requests lose depends on where the frame boundary falls. A one-cycle ROM
+  fetch speedup in `rf_main.sv` moved that boundary and the tower blocks became
+  the losers; reverting it fixes the colours. Bisected on hardware and verified
+  with an automated Zone A capture (0 stale pixels against 4,000-7,000 before).
+  Fixed in `Rayforce_20260912`.
+- **ELEVATOR ACTION RETURNS — a horizontal seam while it scrolls
+  vertically.** Seen on HDMI and on a CRT alike (2026-09-10), so it is in the
+  raster, not in the scaler. The likely mechanism is the CPU running at 79 %
+  of a real 68020 (see Darius Gaiden below): a game whose frame work spills
+  past vblank rewrites its scroll registers under the beam, and the line it
+  does so on is the seam. Not proven: the CPU Speed setting that would test
+  it (x1.27, x1.5) freezes this game outright, which is a second fault in
+  that setting. `Rayforce_20260910` adds the instrument -- the self-test row
+  `VCTRL MIN:MAX:N` is the lowest and highest raster line on which the CPU
+  wrote the video control registers last frame; a MAX in the visible area
+  while it tears is the confirmation.
 - **BUBBLE MEMORIES — asks for the TEST switch on a fresh card.** Its 93C46
   EEPROM has never been written, so it boots to "BACKUP DATA FAILED". Turn on
   Service Mode in the OSD and reset, once. Not a fault in the game.
@@ -178,15 +192,34 @@ longer need **Rotate: None** set by hand -- the core forces it per game.
 
 ## Controls
 
+Every MRA in this repo now ships the same pad layout, so a game does not
+move the buttons around under you:
+
 | Pad | Action |
 |---|---|
 | D-pad or left stick | Move |
-| A | Shot |
-| B | Bomb (lock-on laser) |
-| R | Start |
-| L | Insert coin |
-| Select | Insert coin (measured; this table used to say Service) |
-| Start | Pause |
+| A | Button 1 (Shot) |
+| B | Button 2 (Bomb / lock-on laser) |
+| X, Y | Buttons 3 and 4, on the games that have them |
+| Start | Start |
+| R | Insert coin |
+| Select | Service |
+| L | Pause |
+
+Two games are the exception, and have to be. **Kaiser Knuckle** and
+**Dan-Ku-Ga** are 6-button fighters -- three punches over three kicks -- so
+they use the standard arcade layout, which needs all four face buttons and
+both shoulders:
+
+| Pad | Action |  | Pad | Action |
+|---|---|---|---|---|
+| Y | Light punch |  | B | Light kick |
+| X | Medium punch |  | A | Medium kick |
+| L | Heavy punch |  | R | Heavy kick |
+
+That leaves nothing for Coin and Pause, which fall back to Select and to
+nothing: an MRA default may only name A B X Y L R Start Select, never the
+triggers. Both are reachable from the OSD, and you can map them by hand.
 
 The cabinet TEST switch is **not** on the pad at all. `rf_main.sv` drives it
 only from the OSD's Service Mode; the joystick's Service bit is the service
@@ -204,7 +237,16 @@ no longer go through it.
 - **Rotate** — CW is the right way up for Ray Force. It applies only to the
   vertical games; a horizontal one is never rotated whatever this says,
   because rotating it costs a frame of latency and the wrong aspect.
-- **Flip Screen** — 180° on the rotated output. Does nothing with Rotate = None.
+- **Flip Screen** — 180° on the rotated output. HDMI only: it acts on the
+  rotation framebuffer, which the analog output never passes through.
+- **Flip Analog Out** — 180° on the raw 15 kHz output, for a vertical CRT
+  mounted the other way round. Costs one frame of latency while on (the
+  raster is buffered through DDR3 and read back reversed; it cannot be drawn
+  bottom-up, the F3's per-line state runs top-down) and forces Rotate off,
+  so HDMI shows the same flipped raster, unrotated. Off, the analog path is
+  exactly what it was. For Ray Force / Gunlock there is a zero-latency
+  alternative: the game's own service menu has SCREEN NORMAL / INVERT, and
+  the game flips itself in software. See *On a CRT* below.
 - **Audio Boost** — the real board is very quiet (about 25–30 dB below a
   normal core). 8x is the default; 1x is MAME's own level.
 - **Refresh Rate** — native 58.94 Hz. 60 Hz trims the frame and runs ~1.8 % fast.
@@ -222,6 +264,30 @@ chooses CW or CCW for the vertical games.
 **Saving settings:** the game writes its EEPROM when a setting changes;
 MiSTer writes that to `config/nvram/<mra>.nvm` when you open the OSD. So:
 change a setting, leave the menu, open the OSD once.
+
+### On a CRT
+
+The analog output is the core's raster, 320x224 at 15.44 kHz / 58.94 Hz
+(the F3's own timing: 432 x 262 at 6.6715 MHz), with no scaler in the way.
+
+- **RGB / SCART:** `vga_scaler=0`, `composite_sync=1` in MiSTer.ini.
+- **Composite or S-video** (a video monitor with only BNC / Y-C inputs, such
+  as the JVC TM-950DU this was set up on): the core includes MiSTer's Y/C
+  encoder as of `Rayforce_20260910` -- earlier builds compiled it out, and
+  a composite input fed from them shows a clean black-and-white picture.
+  MiSTer.ini: `vga_mode=cvbs` (or `svideo` if the monitor has a 4-pin Y/C
+  socket -- noticeably better), `vga_scaler=0`, `direct_video=0`. In `cvbs`
+  mode the composite signal is on the **green** pin of the VGA connector
+  (pin 2, ground pin 7); red and blue carry nothing.
+- **Upside down?** A vertical monitor can be turned either way. Either use
+  the game's own screen flip -- Ray Force / Gunlock: Service Mode ->
+  CONFIGURATION -> SCREEN -> INVERT -> SAVE, then open the OSD once so the
+  EEPROM is saved -- which costs nothing, or the core's **Flip Analog Out**,
+  which works for any game and costs a frame.
+- The picture is 15.44 kHz, not NTSC's 15.734, and 58.94 Hz, not 59.94.
+  Arcade monitors do not care; a broadcast monitor usually locks. If it
+  rolls, **Refresh Rate: 60 Hz** lands at 60.09 Hz, much nearer NTSC's
+  vertical rate.
 
 ## Self test
 

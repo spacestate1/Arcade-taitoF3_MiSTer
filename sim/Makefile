@@ -29,6 +29,13 @@
 #
 # Needs the gfx region dumps in ../dump -- see "How to run the video oracle"
 # in HANDOFF.md.
+# Every "-all" sweep is `bench | tail -1 || exit 1`, and in plain sh a
+# pipeline's exit status is tail's -- so the `|| exit 1` never fired and a
+# mismatching frame still left the sweep at exit 0. pipefail makes the
+# bench's own status the pipeline's.
+SHELL := /bin/bash
+.SHELLFLAGS := -o pipefail -c
+
 VERILATOR ?= verilator
 VFLAGS = -DVERILATOR --cc --exe --build -Wno-fatal -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC
 RTL = ../rtl
@@ -106,7 +113,7 @@ mix_ref.txt: gen_mix_ref.py ../tools/f3_render.py
 obj_dir/mixtb: mix_tb.cpp mix_top.sv $(MIX_RTL)
 	$(VERILATOR) $(VFLAGS) --top-module mix_top mix_top.sv $(MIX_RTL) mix_tb.cpp -o mixtb
 
-PIPE_RTL = $(MIX_RTL) $(RTL)/rf_video_pivot.sv $(RTL)/rf_video_spr_list.sv $(RTL)/rf_spr_gfx_bus.sv $(RTL)/rf_spr_ch_share.sv $(RTL)/rf_spr_fb.sv $(RTL)/rf_video_spr.sv $(RTL)/rf_video_pipe.sv
+PIPE_RTL = $(MIX_RTL) $(RTL)/rf_video_pivot.sv $(RTL)/rf_video_spr_list.sv $(RTL)/rf_spr_gfx_bus.sv $(RTL)/rf_spr_ch_share.sv $(RTL)/rf_spr_fb.sv $(RTL)/rf_ddr_tag_mux.sv $(RTL)/rf_out_flip.sv $(RTL)/rf_video_spr.sv $(RTL)/rf_video_pipe.sv
 
 # ---- sprite list walker (stage a) ----
 spr: obj_dir/sprtb spr_ref.txt
@@ -273,6 +280,11 @@ obj_dir/sprlinetb: spr_line_tb.cpp $(SPR_RTL)
 
 pipe: obj_dir/pipetb pipe_ref.txt
 	./obj_dir/pipetb ../dump 1800 pipe_ref.txt pipe_out.ppm
+
+# the output flip: the same frame must come out rotated 180 degrees, one
+# frame late, through the DDR3 model with its stalls and command cost
+pipe-flip: obj_dir/pipetb pipe_ref.txt
+	F3_OUT_FLIP=1 F3_FRAMES=6 ./obj_dir/pipetb ../dump 1800 pipe_ref.txt pipe_out_flip.ppm
 
 # every frame whose two predecessors were dumped (the sprite lag), each
 # against its own reference

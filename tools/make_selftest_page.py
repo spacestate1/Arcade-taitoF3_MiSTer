@@ -49,8 +49,16 @@ PAGE = [
     # The row's PASS test is unchanged (still pal_wr_cnt != 0). Restore the
     # "PALETTE" label, and rf_selftest's row 16, once that bug is closed.
     ("PAL HI : LO",                         1, 1),
-    ("FOLDSEQ N  :N-1",                     1, 1),
-    ("FOLDSEQ N-2:N-3",                     1, 1),
+    # BORROWED 2026-09-10 from FOLDSEQ N:N-1 (sprite corruption: closed).
+    # {lowest raster line, highest raster line, count} of the CPU's writes to
+    # the video control registers (0x660000-1F) last frame -- rf_main. A
+    # tear that moves with scrolling is a scroll write under the beam; this
+    # says whether there is one and on which line.
+    ("VCTRL MIN:MAX:N",                     1, 1),
+    # BORROWED 2026-09-10 from FOLDSEQ N-2:N-3 (sprite corruption: closed).
+    # {rf_out_flip display lines fetched late, source lines written late} --
+    # the analog flip's DDR3 timing, judged on the board. Both must be 0.
+    ("FLIP LATE:WLATE",                     1, 1),
     # BORROWED 2026-09-09 from USEDSEQ N:N-1 only, exactly as
     # SPRFETCH:ROWMAX borrowed MIX:BUILD -- the page is 28 rows, so a new row
     # costs an old one. Those two were measurement rows for the sprite
@@ -63,7 +71,8 @@ PAGE = [
     # VRAM and therefore cannot see it. These two rows split the CPU's writes
     # by destination, which is the measurement nothing on the board makes.
     ("PF WR  : SPR WR",                     1, 1),
-    ("USEDSEQ N-2:N-3",                     1, 1),
+    # BORROWED 2026-09-11 from USEDSEQ N-2:N-3 (sprite corruption: closed).
+    ("FLUSH:SHORT",                         1, 1),
     ("-- VIDEO PIPELINE / FRAME -----------", 0, 0),
     ("SPRFETCH:ROWMAX",                     1, 1),   # {longest single sprite gfx fetch in clocks, most rows drawn on one line}
     ("FETCH : PIX NZ",                      1, 1),
@@ -167,6 +176,13 @@ def main():
     out.append("    output logic  [5:0] b_char")
     out.append(");")
     out.append("")
+    # M10K, explicitly. 1480 x 6 bits is 8,880 bits, and an MLAB holds 640 --
+    # so left to itself Quartus spent ~47 MLABs, i.e. ~47 LABs, on a page of
+    # constant debug text at 70 % width waste (6 bits used of 20). One M10K
+    # holds the whole thing with room over. Both reads are already registered
+    # and it is a true dual-port ROM, which is exactly what an M10K is for.
+    # Audited 2026-09-11, when the design failed to fit by 16 LABs.
+    out.append('    (* ramstyle = "M10K" *)')
     out.append(f"    logic [5:0] rom [0:{len(cells)-1}];")
     out.append("")
     out.append("    initial begin")

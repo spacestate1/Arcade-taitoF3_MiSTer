@@ -237,8 +237,22 @@ module rf_selftest #(
            priority flags the draw published, which the MIXER composes with:  \
            X Y X Y here with FOLDSEQ constant means identical sprite pixels   \
            are being composed differently. No pass criterion: measurement. */ \
+        /* BORROWED 2026-09-10 from FOLDSEQ N:N-1: VCTRL MIN:MAX:N, rf_main's \
+           {lowest raster line, highest raster line, count} of the CPU's      \
+           writes to the video control registers last frame. Reports only:   \
+           the question is whether a tearing game writes scroll under the    \
+           beam, and where. */                                               \
         5'd17: begin VAL = seq_rec01;  STA = !cpu_running ? ST_WAIT : ST_PASS; end \
-        5'd18: begin VAL = seq_rec23;  STA = !cpu_running ? ST_WAIT : ST_PASS; end \
+        /* BORROWED 2026-09-10 from FOLDSEQ N-2:N-3 (the sprite corruption   \
+           it measured is closed -- rec store aliasing): FLIP LATE:WLATE,    \
+           rf_out_flip's {display lines whose DDR3 fetch had not landed when  \
+           their raster began, source lines whose write-out had not finished  \
+           when the next line began}. Both must be zero whenever Flip Analog  \
+           Out is on; with it off they never move. Restore the FOLDSEQ row    \
+           here and in tools/make_selftest_page.py if the sprite work         \
+           reopens. */                                                        \
+        5'd18: begin VAL = seq_rec23;  /* FLIP LATE:WLATE */                 \
+                 STA = (seq_rec23 == 32'd0) ? ST_PASS : ST_FAIL; end         \
         /* BORROWED 2026-09-09 (see tools/make_selftest_page.py): the CPU's  \
            writes split by destination. The Bubble games corrupt the playfield \
            on hardware while the same frames are 71680/71680 in simulation, so \
@@ -249,7 +263,15 @@ module rf_selftest #(
         5'd19: begin VAL = {pf_wr_cnt, spr_wr_cnt};                          \
                  STA = !cpu_running ? ST_WAIT :                              \
                        (pf_wr_cnt != 16'd0) ? ST_PASS : ST_BUSY; end         \
-        5'd20: begin VAL = seq_nspr23; STA = !cpu_running ? ST_WAIT : ST_PASS; end \
+        /* BORROWED 2026-09-11 from USEDSEQ N-2:N-3: FLUSH:SHORT, the DDR3  \
+           tag mux's watchdog flushes and rf_spr_fb's short reads. Both     \
+           must be zero -- non-zero says the port broke its burst contract, \
+           which is what tells a DESYNCED flip from a merely starved one.   \
+           EVERY LINE IN THIS FILE IS INSIDE ONE MACRO and must end in a    \
+           backslash -- a comment line without one ends the macro and the   \
+           errors land pages away. That cost a build on 2026-09-11. */      \
+        5'd20: begin VAL = seq_nspr23;                                 \
+                 STA = (seq_nspr23 == 32'd0) ? ST_PASS : ST_FAIL; end  \
         5'd26: VAL = build_hex;                                              \
         /* SPRFETCH:ROWMAX -- {longest single sprite gfx fetch in clocks,   \
            most rows drawn on one line}. This row replaced MIX : BUILD,      \

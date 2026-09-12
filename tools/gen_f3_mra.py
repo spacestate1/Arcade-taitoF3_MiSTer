@@ -85,9 +85,64 @@ def cfg_bytes(game):
     return idx1, idx2
 
 
+
+# ---- pad defaults ---------------------------------------------------------
+# The bench pad's layout, read back off the board from
+# config/inputs/rayforce_input_045e_02d1_v3.map on 2026-09-11 and made the
+# default for the whole library: button 1 = A, button 2 = B, Start = Start,
+# Coin = R (right shoulder), Service = Select, Pause = L (left shoulder).
+# Extra game buttons take X then Y then the shoulders, in that order.
+#
+# An MRA default may only name A B X Y L R Start Select and "-" -- the
+# triggers are NOT addressable here (surveyed across 394 MRAs on the board),
+# so a 6-button game, which needs all four faces AND both shoulders, has
+# nothing left for Coin and Pause. Those two fall back to Select and to
+# nothing; both are reachable from the OSD. The fighters therefore use the
+# standard arcade layout instead of this one -- LP/MP/HP over LK/MK/HK --
+# because on a 6-button game the physical arrangement is the point.
+PAD_ORDER = ["A", "B", "X", "Y", "L", "R"]
+FIGHTER   = "Y,X,L,B,A,R,Start,Select,-"
+
+def btn_count(btn):
+    """Game buttons to expose: the named ones, but never fewer than two.
+
+    The floor is FOUR, and it is the important part. MAME wires four buttons
+    into IN.0 for every F3 game in the driver (audited across all 26 sets,
+    2026-09-11) and rf_main already drives all four from joystick bits 4-7 --
+    so the hardware path has always been there and only the MRA hid it.
+    Shipping count="2" is exactly why Arabian Magic's "Magic" and Command
+    War's third button did nothing when they were played, and neither game
+    was in any way special. A game that ignores button 3 or 4 simply ignores
+    it, so exposing them costs nothing and guessing per game costs plenty.
+    Raising a count is safe; lowering one takes a working button away from
+    whoever had mapped it.
+    """
+    named = sum(1 for x in btn.split(",")[:6] if x.strip() not in ("-", ""))
+    return max(named, 4)
+
+def btn_default(n):
+    if n >= 6:
+        return FIGHTER
+    return ",".join(PAD_ORDER[:n] + ["Start", "R", "Select", "L"])
+
+
+def btn_names(btn, n):
+    """Make sure the first n slots are labelled -- an exposed button that
+    shows as "-" in the mapping menu looks broken rather than generic."""
+    parts = [x.strip() for x in btn.split(",")]
+    for i in range(min(n, 6)):
+        if parts[i] in ("-", ""):
+            parts[i] = f"Button {i+1}"
+    return ",".join(parts)
+
 def emit(game, spec, out):
     game = dict(game)
     game["cfg1"], game["cfg2"] = cfg_bytes(game)
+    # count and pad defaults follow the button NAMES, so a game that gains a
+    # button only has to gain a name
+    game.setdefault("btnc", btn_count(game["btn"]))
+    game.setdefault("btnd", btn_default(game["btnc"]))
+    game["btn"] = btn_names(game["btn"], game["btnc"])
     # A game may widen a region slot. Ensoniq is the LAST region in the map,
     # so a game using all 8 MB of it simply streams 4 MB more than the rest
     # and every earlier MRA is untouched -- which is the whole reason the
@@ -206,7 +261,7 @@ def emit(game, spec, out):
   <!-- the 93C46 settings EEPROM: 64 words, saved to config/nvram/<mra>.nvm -->
   <nvram index="254" size="256"/>
 
-  <buttons names="{game['btn']}" default="A,B,R,L,Select,Start" count="2"/>
+  <buttons names="{game['btn']}" default="{game.get('btnd', 'A,B,R,L,Select,Start')}" count="{game.get('btnc', 2)}"/>
 </misterromdescription>
 """
     open(out, "w").write(xml)
@@ -360,7 +415,7 @@ GAMES = [
               ("raw","e49-03"),("raw","e49-04"),("raw","e49-05")]}),
 (dict(set="arabianm", name="Arabian Magic", year="1992",
        rot="horizontal", cfg1=0x24, cfg2=0x02, vis=0, ext=0, id=20,
-       btn="Attack,Jump,-,-,-,-,Start,Coin,Service,Pause",
+       btn="Attack,Jump,Magic,-,-,-,Start,Coin,Service,Pause",
        note=P12 + "Horizontal (MAME ROT0), extend=0. " + SPARSE),
   {"maincpu":[("il32",["d29-23.ic40","d29-22.ic38","d29-21.ic36","d29-25.ic34"])],
    "audiocpu":[("il16",["d29-18.ic5","d29-19.ic6"]),("il16",["d29-18.ic5","d29-19.ic6"])],
@@ -384,7 +439,7 @@ GAMES = [
 
  (dict(set="ringrage", name="Ring Rage", year="1992",
        rot="horizontal", cfg1=0xA4, cfg2=0x02, vis=0, ext=0, id=22,
-       btn="Punch,Kick,-,-,-,-,Start,Coin,Service,Pause",
+       btn="Button 1,Button 2,Button 3,Button 4,-,-,Start,Coin,Service,Pause",
        note=P12 + "Horizontal (MAME ROT0), extend=0. " + SPARSE),
   {"maincpu":[("il32",["d21-23.40","d21-22.38","d21-21.36","d21-25.34"])],
    "audiocpu":[("il16",["d21-18.5","d21-19.6"]),("il16",["d21-18.5","d21-19.6"])],
@@ -413,7 +468,7 @@ GAMES = [
 
  (dict(set="trstar", name="Top Ranking Stars", year="1993", map=1,
        rot="horizontal", cfg1=0xA3, cfg2=0x02, vis=3, ext=1, id=28,
-       btn="Punch,Kick,-,-,-,-,Start,Coin,Service,Pause",
+       btn="Button 1,Button 2,Button 3,Button 4,-,-,Start,Coin,Service,Pause",
        note=P1N + "Horizontal (MAME ROT0). " + MIR + " " + SP),
   {"maincpu":[("il32",["d53-15-1.24","d53-16-1.26","d53-18-1.37","d53-20-1.35"])],
    "audiocpu":[("il16",["d53-13.10","d53-14.23"]),("il16",["d53-13.10","d53-14.23"])],
@@ -533,7 +588,7 @@ GAMES = [
 
  (dict(set="kaiserkn", name="Kaiser Knuckle", year="1994", map=1,
        rot="horizontal", cfg1=0x80, cfg2=0x05, vis=0, ext=0, id=34,
-       btn="Punch,Kick,-,-,-,-,Start,Coin,Service,Pause",
+       btn="Light Punch,Medium Punch,Heavy Punch,Light Kick,Medium Kick,Heavy Kick,Start,Coin,Service,Pause",
        note=P1N + "Global Champion outside Japan. THE LARGEST SET IN THE LIBRARY BAR ONE at 36 MB: 13 MB of sprites, 6.5 MB of sprites_hi and 3 MB of tilemap_hi, which is what sized profile 1. " + E16 + "Its bank 1 is empty too, and the third sample ROM sits at bank 7."),
   {"maincpu":[("il32",["d84-25.20","d84-24.19","d84-23.18","d84-29.17"])],
    "audiocpu":[("il16",["d84-26.32","d84-27.33"])],
@@ -549,7 +604,7 @@ GAMES = [
 
  (dict(set="dankuga", name="Dan-Ku-Ga", year="1994", map=1,
        rot="horizontal", cfg1=0xC0, cfg2=0x05, vis=0, ext=0, id=35,
-       btn="Punch,Kick,-,-,-,-,Start,Coin,Service,Pause",
+       btn="Light Punch,Medium Punch,Heavy Punch,Light Kick,Medium Kick,Heavy Kick,Start,Coin,Service,Pause",
        note=P1N + "A PROTOTYPE, and Kaiser Knuckle's graphics and samples entirely -- only the program differs. See that MRA for the layout notes."),
   {"maincpu":[("il32",["dkg_mpr3.20","dkg_mpr2.19","dkg_mpr1.18","dkg_mpr0.17"])],
    "audiocpu":[("il16",["d84-26.32","d84-27.33"])],

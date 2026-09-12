@@ -44,7 +44,9 @@ module rf_uart_log #(
     // it that way means the length (for trailing-space trimming) is known
     // before the first byte leaves, and the character port is not held for
     // the whole 3.6 ms a row takes on the wire.
-    logic [7:0] buf_mem [0:ST_COLS-1];
+    // MLAB: 40 x 8 bits was landing in a whole M10K block (fit report,
+    // 2026-09-09), and M10K is what the design is out of.
+    (* ramstyle = "MLAB" *) logic [7:0] buf_mem [0:ST_COLS-1];
     logic [5:0] len;
 
     typedef enum logic [1:0] { S_IDLE, S_FETCH, S_SEND } state_t;

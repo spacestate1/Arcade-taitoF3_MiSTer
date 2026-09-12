@@ -86,6 +86,10 @@ module pipe_top (
     output logic [31:0] dbg_spr,
     output logic [31:0] dbg_rec,
     input  logic  [1:0] vis_mode,
+    // the output flip (rf_out_flip): the raw output upside down, a frame late
+    input  logic        out_flip,
+    output logic [31:0] dbg_flip,
+    output logic [15:0] dbg_short,     // rf_spr_fb: reads that under-delivered
     // f3_config_table extend; the bench's games are all extend=1, so the
     // testbench leaves this at 1 unless it is driving a 32x32 set
     input  logic        extend
@@ -127,7 +131,8 @@ module pipe_top (
         .dbg_sfetch(dbg_sfetch), .dbg_sprpix(dbg_sprpix), .dbg_mixpix(dbg_mixpix), .row_cap(row_cap),
         .ddr_burstcnt(ddr_burstcnt), .ddr_addr(ddr_addr), .ddr_din(ddr_din),
         .ddr_be(ddr_be), .ddr_we(ddr_we), .ddr_rd(ddr_rd),
-        .ddr_busy(ddr_busy), .ddr_dout(ddr_dout), .ddr_dout_ready(ddr_dout_ready)
+        .ddr_busy(ddr_busy), .ddr_dout(ddr_dout), .ddr_dout_ready(ddr_dout_ready),
+        .out_flip(out_flip), .dbg_flip(dbg_flip), .dbg_short(dbg_short)
     );
 
     // Bus A's planes on channel 1, bus B's on channel 2. The sharer's b_*

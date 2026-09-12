@@ -141,6 +141,9 @@ module rf_video_pipe
     input  logic        ddr_busy,
     input  logic [63:0] ddr_dout,
     input  logic        ddr_dout_ready,
+    // ---- the output flip (rf_out_flip): the raw output upside down ------
+    input  logic        out_flip,
+    output logic [31:0] dbg_flip,      // {reader late lines, writer late lines}
 
     output logic [31:0] dbg_sfetch,
     output logic [31:0] dbg_spr,       // {longest sprite line draw in clocks,
@@ -154,6 +157,7 @@ module rf_video_pipe
     // INSTRUMENT (see rf_ddr_arb.sv): times a sprite line's DDR3 read came
     // back short and the line had to be refetched from zero.
     output logic [15:0] dbg_short,
+    output logic [15:0] dbg_flush,   // rf_ddr_tag_mux watchdog flushes
     // THE FOLD PAIR (rf_spr_fb.sv's own decision table). Same pixels summed
     // either side of the DDR3 round trip, the write side delayed a frame so
     // both describe the SAME drawn frame:
@@ -244,6 +248,17 @@ module rf_video_pipe
     logic [7:0] bld_y;
     logic       mix_bank;
     logic [7:0] mix_y;                  // the line the mixer is composing
+    // The output line buffer is THREE banks of 320 (960 of the 1024 words
+    // its three M10K hold) as of the analog flip: the flip's writer reads a
+    // finished line back out over the two rasters after it, so the bank has
+    // to survive two lines, not one. mix_b3 is the bank the mixer composes
+    // into this raster (line mod 3), beam_b3 the one it composed last raster
+    // -- the line the beam shows now. Counted, not divided: +1 a line, 0 at
+    // line 0.
+    logic [1:0] mix_b3, beam_b3;
+    function automatic logic [9:0] lb_base(input logic [1:0] b);
+        lb_base = (b == 2'd0) ? 10'd0 : (b == 2'd1) ? 10'd320 : 10'd640;
+    endfunction
 
     always_ff @(posedge clk) begin
         frame_start <= 1'b0;
@@ -252,10 +267,14 @@ module rf_video_pipe
         if (!reset && h0) begin
             case (div)
                 3'd0: frame_start <= (vcnt == v_last1);
-                3'd1: if (do_mix) begin
-                          mix_start <= 1'b1;
-                          mix_bank  <= l_mix[0];
-                          mix_y     <= l_mix[7:0];
+                3'd1: begin
+                          beam_b3 <= mix_b3;
+                          mix_b3  <= (l_mix == 9'd0) ? 2'd0 : (mix_b3 == 2'd2) ? 2'd0 : mix_b3 + 2'd1;
+                          if (do_mix) begin
+                              mix_start <= 1'b1;
+                              mix_bank  <= l_mix[0];
+                              mix_y     <= l_mix[7:0];
+                          end
                       end
                 // (the sprite draw is not started per line: it runs ahead
                 // of the mixer on its own, see rf_video_spr)
@@ -426,6 +445,13 @@ module rf_video_pipe
     // the mixer reads LAST frame's back. This is what takes the per-line
     // deadline off the draw entirely -- see rf_spr_fb.sv for the measurements
     // that forced it.
+    // the pipe's DDR3 port, shared below between spr_fb (F) and the flip (V)
+    logic  [7:0] f_burstcnt, v_burstcnt;
+    logic [28:0] f_addr, v_addr;
+    logic [63:0] f_din, v_din, f_dout, v_dout;
+    logic  [7:0] f_be, v_be;
+    logic        f_we, f_rd, f_busy, f_dout_ready;
+    logic        v_we, v_rd, v_busy, v_dout_ready;
     rf_spr_fb spr_fb (
         .clk(clk), .reset(reset),
         .frame_start(frame_start), .par(spr_par),
@@ -436,10 +462,39 @@ module rf_video_pipe
         .wr_fold(spr_wr_fold), .rd_fold(spr_rd_fold), .defer_cnt(spr_defer),
         .short_cnt(dbg_short),
         .bad_first(spr_bad_first), .bad_last(spr_bad_last), .bad_count(spr_bad_count),
+        .ddr_burstcnt(f_burstcnt), .ddr_addr(f_addr), .ddr_din(f_din),
+        .ddr_be(f_be), .ddr_we(f_we), .ddr_rd(f_rd),
+        .ddr_busy(f_busy), .ddr_dout(f_dout), .ddr_dout_ready(f_dout_ready)
+    );
+
+    // The pipe's DDR3 port is shared between the sprite framebuffer and the
+    // output flip. Both read, so the returning beats have to be told apart
+    // -- see rf_ddr_tag_mux.
+    rf_ddr_tag_mux ddr_mux (
+        .flush_cnt(dbg_flush),
+        .clk(clk), .reset(reset),
+        // inert unless the flip is actually on -- see the module header
+        .enable(out_flip),
+        .f_burstcnt(f_burstcnt), .f_addr(f_addr), .f_din(f_din), .f_be(f_be),
+        .f_we(f_we), .f_rd(f_rd), .f_busy(f_busy), .f_dout(f_dout), .f_dout_ready(f_dout_ready),
+        .v_burstcnt(v_burstcnt), .v_addr(v_addr), .v_din(v_din), .v_be(v_be),
+        .v_we(v_we), .v_rd(v_rd), .v_busy(v_busy), .v_dout(v_dout), .v_dout_ready(v_dout_ready),
         .ddr_burstcnt(ddr_burstcnt), .ddr_addr(ddr_addr), .ddr_din(ddr_din),
         .ddr_be(ddr_be), .ddr_we(ddr_we), .ddr_rd(ddr_rd),
         .ddr_busy(ddr_busy), .ddr_dout(ddr_dout), .ddr_dout_ready(ddr_dout_ready)
     );
+
+    // The output flip: last frame's raster, upside down, for the analog
+    // output (see rf_out_flip.sv). It reads the line buffer the beam is not
+    // using and fills the display buffer the beam reads instead.
+    logic  [9:0] flip_lb_addr;
+    logic        flip_db_we;
+    logic  [8:0] flip_db_waddr;
+    logic [47:0] flip_db_wdata;
+    logic [15:0] flip_late, flip_wlate;
+    assign dbg_flip = {flip_late, flip_wlate};
+    // (rf_out_flip itself is instantiated with the line buffers below,
+    // which it reads and writes)
 
     // ---- mixer -----------------------------------------------------------
     logic mix_busy, out_valid;
@@ -471,14 +526,48 @@ module rf_video_pipe
     wire  [8:0] xn = hcnt + 9'd1 - H_START[8:0];
     wire [23:0] lb_q;
 
+    // While the output flip is on, the beam reads the display buffer below
+    // and this buffer's read port belongs to the flip's writer, which reads
+    // line T back out of the bank the beam would have read, over rasters T
+    // and T+1 (three banks: see mix_b3).
     rf_bram #(.WIDTH(24), .AW(10)) u_lbuf (
         .clk(clk),
-        .waddr({mix_bank, out_x}), .wdata(out_rgb), .wren(out_valid),
-        .raddr({vcnt[0], xn}), .q(lb_q)
+        // Three banks only while the flip needs a line to survive two
+        // rasters. With the flip off this is the original two-bank buffer,
+        // addressed exactly as it was before rf_out_flip existed -- the
+        // 2026-09-11 bisect says every build without this machinery renders
+        // Darius Gaiden's Zone A palette correctly.
+        .waddr(out_flip ? (lb_base(mix_b3) + 10'(out_x)) : {mix_bank, out_x}),
+        .wdata(out_rgb), .wren(out_valid),
+        .raddr(out_flip ? flip_lb_addr : {vcnt[0], xn}), .q(lb_q)
+    );
+
+    // The flip's display buffer: three banks of 160 two-pixel words (480 of
+    // the 512 the three M10K hold), written by rf_out_flip two lines ahead,
+    // read by the beam a word per two pixels from the bank it names.
+    wire [47:0] db_q;
+    logic [8:0] flip_db_rbase;
+    rf_bram #(.WIDTH(48), .AW(9)) u_dbuf (
+        .clk(clk),
+        .waddr(flip_db_waddr), .wdata(flip_db_wdata), .wren(flip_db_we),
+        .raddr(flip_db_rbase + 9'(xn[8:1])), .q(db_q)
+    );
+
+    rf_out_flip out_flipper (
+        .clk(clk), .reset(reset), .enable(out_flip),
+        .h0(h0), .div(div), .vcnt(vcnt), .vis_mode(vis_mode),
+        .lb_base(lb_base(beam_b3)), .lb_addr(flip_lb_addr), .lb_q(lb_q),
+        .db_we(flip_db_we), .db_waddr(flip_db_waddr), .db_wdata(flip_db_wdata),
+        .db_rbase(flip_db_rbase),
+        .ddr_burstcnt(v_burstcnt), .ddr_addr(v_addr), .ddr_din(v_din),
+        .ddr_be(v_be), .ddr_we(v_we), .ddr_rd(v_rd),
+        .ddr_busy(v_busy), .ddr_dout(v_dout), .ddr_dout_ready(v_dout_ready),
+        .late_cnt(flip_late), .wlate_cnt(flip_wlate)
     );
 
     logic [23:0] rgb_q;
-    always_ff @(posedge clk) if (div == 3'd7) rgb_q <= lb_q;
+    always_ff @(posedge clk)
+        if (div == 3'd7) rgb_q <= !out_flip ? lb_q : (xn[0] ? db_q[47:24] : db_q[23:0]);
 
     assign rgb = (hblank | vblank) ? 24'd0 : rgb_q;
 

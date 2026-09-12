@@ -90,6 +90,11 @@ module rf_main
     input  logic        hs_we,
     output logic [15:0] hs_q,
     input  logic [15:0] j1,
+    // Kaiser Knuckle / Dan-Ku-Ga are 6-button fighters: buttons 4-6 are not
+    // in IN.0 with the first three, they are in IN.4 (P2) and IN.5 (P1).
+    // Every other game in the library uses those two ports for P3/P4, so
+    // this is per game, from the MRA's game id (see Rayforce.sv).
+    input  logic        six_button,
     input  logic        test_sw,        // cabinet TEST switch (OSD toggle)
 
     // ---- NVRAM: the settings EEPROM, loaded from and saved to the SD card
@@ -149,6 +154,17 @@ module rf_main
     // lost in the core; no jump means the CPU took a different path.
     output logic [15:0] pal_wr_hi,
     output logic [15:0] pal_wr_lo,
+    // WHERE in the frame the CPU writes the video control registers
+    // (0x660000-1F: playfield scroll, pivot scroll). {lowest raster line,
+    // highest raster line, writes} over the last frame, lines clipped to
+    // 255. A game whose scroll writes all land in vblank (lines <= 30, or
+    // 255 here for 256+) cannot tear; one whose MAX sits mid-screen is
+    // rewriting scroll under the beam, and the line it lands on is the
+    // seam. Elevator Action Returns tears while scrolling vertically on
+    // both outputs (2026-09-10), so the seam is in the raster, and this
+    // says whether the write timing puts it there.
+    input  logic  [8:0] vid_vcnt,
+    output logic [31:0] vctrl_wr_dbg,
     input  logic  [2:0] cpu_speed,      // OSD throttle, 0 = core as built
     // ZONE INJECTOR (Ray Force). 0 = off. 1..3 = start the game at zone
     // 2..4. Ray Force's new-game init (ROM 0x004810) stores the constant 1
@@ -219,13 +235,52 @@ module rf_main
 );
 
     // ---- CPU -------------------------------------------------------------
-    logic        clkena;
+    logic        clkena_r;             // the registered decision; the
+                                       // qualified enable is `clkena` below
     logic [31:0] cpu_addr;
     logic [15:0] cpu_din, cpu_dout;
     logic        nWr, nUDS, nLDS;
     logic [1:0]  busstate;              // 00 fetch, 10 read, 11 write, 01 none
     logic [31:0] vbr;
     logic  [2:0] ipl;
+
+    // ---- the read-data wait ---------------------------------------------
+    // rf_bram_be is a one-cycle read (address registered, output
+    // unregistered) and src_q is a registered decode to match, so a read's
+    // data reaches cpu_din the cycle AFTER its address reaches the bus. The
+    // every-other-cycle rule in the wait-state engine below (`!clkena` in
+    // the guard) used to buy that cycle for every access alike, and
+    // cpu_fast simply deleted it -- which is why CPU Speed 1-3 froze every
+    // game within a frame: TG68K latched the PREVIOUS access's ram_q
+    // through the PREVIOUS access's src_q, on work RAM, palette, sprite,
+    // playfield, text, line, pivot and the sound DPRAM alike. ROM was the
+    // one source that survived, because rom_wait/prog_valid is a handshake
+    // and not a fixed latency -- which is what made it look like a CPU that
+    // boots and then hangs rather than one that never runs.
+    //
+    // Which access needs the wait CANNOT be decided a cycle ahead: the
+    // busstate of the operation a clock enable will complete only appears
+    // once the CPU has already advanced onto it. (A guard that reads
+    // busstate on the deciding cycle is reading the operation that is
+    // finishing, not the one that is starting, and gets the internal->read
+    // transition wrong -- the same bug in a new place.) So the wait is
+    // applied combinationally, on the cycle it is actually true:
+    //   cpu_fresh      this cycle's address only just reached the bus, so
+    //                  any BRAM behind it is still answering the last one
+    //   cpu_needs_data fetch (00) or read (10). A write (11) and an
+    //                  internal cycle (01) consume nothing off cpu_din and
+    //                  may run back to back -- and on this CPU those are
+    //                  where the deficit lives, because TG68K spends far
+    //                  more internal cycles than a real 68020 and the old
+    //                  rule halved the rate of every one of them.
+    //
+    // Settings 0 and 4-7 are provably unchanged: clkena_r already
+    // alternates there, so cpu_fresh is never high on a cycle clkena_r is
+    // and the qualification never fires. (2026-09-11)
+    logic        cpu_fresh;
+    wire         cpu_needs_data = (busstate == 2'b00) || (busstate == 2'b10);
+    wire         clkena = clkena_r && !(cpu_needs_data && cpu_fresh);
+    always_ff @(posedge clk) cpu_fresh <= reset ? 1'b0 : clkena;
 
     // Wait-state engine, unchanged from the spike (it is the validated part):
     // BRAM and register targets are 2-cycle ops; a ROM access issues one
@@ -274,7 +329,9 @@ module rf_main
                           (cpu_speed == 3'd5) ? 8'd113 :   // 88 %
                           (cpu_speed == 3'd6) ? 8'd96  :   // 75 %
                                                 8'd64;     // 50 %
-    // 1-3 lift the every-other-cycle cap; everything else keeps it
+    // 1-3 lift the every-other-cycle cap for the cycles that consume no
+    // read data; everything else keeps it for all of them. Lifting it for
+    // reads as well is what froze them -- see the read-data wait above.
     wire        cpu_fast = (cpu_speed >= 3'd1) && (cpu_speed <= 3'd3);
 
     always_ff @(posedge clk) begin
@@ -288,19 +345,52 @@ module rf_main
 
     always_ff @(posedge clk) begin
         if (reset) begin
-            clkena    <= 1'b0;
+            clkena_r  <= 1'b0;
             rom_wait  <= 1'b0;
             prog_req  <= 1'b0;
         end else begin
             prog_req <= 1'b0;
-            clkena   <= 1'b0;
+            clkena_r <= 1'b0;
 
             if (rom_wait) begin
+                // prog_valid direct, not just the latched copy: a fetch was
+                // five clk_sys cycles even on a line-cache hit (decision ->
+                // prog_req -> prog_valid -> prog_valid_lat -> clkena) and
+                // this takes it to four. prog_data_lat is loaded on the same
+                // edge that schedules the enable -- clkena is still low that
+                // cycle -- so cpu_din is valid when the CPU samples it.
+                // Instruction fetch is the dominant cost here and the
+                // throttle never touched it: this branch bypasses thr_go.
+                // BISECT 2026-09-12: reverted to prog_valid_lat. The direct
+                // prog_valid took a cycle off EVERY instruction fetch at every
+                // CPU Speed setting (this branch bypasses thr_go), and Darius
+                // Gaiden's Zone A palette copy is timing-sensitive by ROM
+                // design -- 39 requests into a 32-entry queue, and which three
+                // are silently dropped depends on where the frame boundary
+                // falls. Faster fetch moves that boundary.
                 if (prog_valid_lat) begin
                     rom_wait <= 1'b0;
-                    clkena   <= 1'b1;
+                    clkena_r <= 1'b1;
                 end
-            end else if ((cpu_fast || !clkena) && !pause && !hs_pause && thr_go
+            // clkena_r, NOT the qualified clkena. Reading the qualified one
+            // here put the qualifying logic INSIDE this register's own
+            // next-state loop (clkena_r -> qualify -> guard -> clkena_r), and
+            // that is what took clk_sys from +1.138 ns slack to -0.292 with
+            // -9.781 TNS on 2026-09-11 -- the first time the core clock had
+            // ever failed. With clkena_r the loop is exactly as deep as it
+            // was before the fix, and the qualification sits only on the
+            // output that feeds TG68K.
+            //
+            // Still correct: when clkena_r is high but the qualification
+            // blocks it, the CPU did NOT advance, so the address stays
+            // settled; the guard simply declines this cycle and passes on the
+            // next one. A blocked read therefore costs one EXTRA dead cycle
+            // rather than going wrong, and back-to-back writes and internal
+            // cycles are unaffected because they are never blocked. Settings
+            // 0 and 4-7 stay bit-identical: cpu_fast is low, and clkena_r
+            // already alternates, so neither term changes.
+            end else if ((!clkena_r || (cpu_fast && !cpu_needs_data))
+                         && !pause && !hs_pause && thr_go
                          && !piv_busy) begin
                 // pause: no further clock enables, so the CPU freezes between
                 // bus cycles (a ROM fetch in flight still completes above)
@@ -309,7 +399,7 @@ module rf_main
                     prog_req  <= 1'b1;
                     rom_wait  <= 1'b1;
                 end else begin
-                    clkena <= 1'b1;
+                    clkena_r <= 1'b1;
                 end
             end
         end
@@ -517,6 +607,26 @@ module rf_main
                            ~j1[0], ~j1[1], ~j1[2], ~j1[3],
                            ~j0[0], ~j0[1], ~j0[2], ~j0[3] };
 
+    // The 6-button fighters' extra three, active low, at the bit positions
+    // MAME's port map gives them (verified with tools/mame/ports.lua on both
+    // sets, 2026-09-11): IN.4 P2 button 4/5/6 = mask 0x100/0x200/0x400, so
+    // low-word bits 10:8; IN.5 P1 button 4/5/6 = 0x001/0x002/0x004, bits 2:0.
+    // MiSTer's joystick word puts buttons 4,5,6 at [7],[8],[9]. Off for every
+    // other game, so those ports read all-ones exactly as they did before.
+    wire [15:0] in4_lo = six_button
+        ? {5'h1F, ~j1[9], ~j1[8], ~j1[7], 8'hFF}
+        : 16'hFFFF;
+    wire [15:0] in5_lo = six_button
+        ? {13'h1FFF, ~j0[9], ~j0[8], ~j0[7]}
+        : 16'hFFFF;
+
+    // NO dial. Arkanoid Returns is a paddle game and reads a 12-bit dial per
+    // player at index 5 and 7 (VERIFIED in MAME 2026-09-11: reads at 0x4A0008
+    // and 0x4A000C, mask 0000FFFF, which big-endian is 0x4A000A / 0x4A000E).
+    // It was implemented and then taken back out the same day: the design was
+    // 16 LABs over and this was the newest thing in it, so it was the cheapest
+    // to drop. Put it back when there is room -- RESOURCES.md lever 1, the
+    // sl_d -> M10K move, is worth +163 LABs and would pay for it many times.
     logic [15:0] ctrl_q;
     always_comb begin
         case (a[4:1])
@@ -525,13 +635,13 @@ module rf_main
             4'h2: ctrl_q = coin_word0;          // IN.1 high word
             4'h3: ctrl_q = in1_lo;              // IN.1 low  word
             4'h4: ctrl_q = 16'hFFFF;            // IN.2 analog, high word
-            4'h5: ctrl_q = 16'h0000;            // IN.2 analog, no dial fitted
+            4'h5: ctrl_q = 16'h0000;            // IN.2 low: P1 dial, not fitted
             4'h6: ctrl_q = 16'hFFFF;            // IN.3 analog, high word
-            4'h7: ctrl_q = 16'h0000;            // IN.3 analog
-            4'h8: ctrl_q = 16'hFFFF;            // IN.4 P3/P4 buttons
-            4'h9: ctrl_q = 16'hFFFF;
+            4'h7: ctrl_q = 16'h0000;            // IN.3 low: P2 dial, not fitted
+            4'h8: ctrl_q = 16'hFFFF;            // IN.4 P3/P4 buttons, high word
+            4'h9: ctrl_q = in4_lo;              // IN.4 low: P2 buttons 4-6
             4'hA: ctrl_q = coin_word1;          // IN.5 high word
-            4'hB: ctrl_q = 16'hFFFF;            // IN.5 P3/P4 joysticks
+            4'hB: ctrl_q = in5_lo;              // IN.5 low: P1 buttons 4-6
             default: ctrl_q = 16'hFFFF;
         endcase
     end
@@ -815,7 +925,12 @@ module rf_main
     // and the room went to the sprite record store and the tile-row cache
     // (RESOURCES.md). 512 writes is still the whole of a triggered capture
     // window and more than any UART comparison has needed.
-    localparam int RING_AW = 9;
+    // 9 -> 8 on 2026-09-10: 256 entries, 2 M10K instead of 3. The block
+    // went to the output flip's display buffer (rf_video_pipe u_dbuf) --
+    // with the YC encoder back in, M10K is the resource the design is out
+    // of. 256 writes still covers a boot-loop comparison; the audio capture
+    // through this ring is half as long as it was.
+    localparam int RING_AW = 8;
     wire ring_wrapped = |wr_count[31:RING_AW];   // more than the ring holds
     assign ring_full = ring_ext_sel ? snd_frozen : ring_wrapped;
 
@@ -913,6 +1028,25 @@ module rf_main
         .wren(ring_adv),
         .raddr(ring_raddr[RING_AW-1:0]), .q(ring_rdata)
     );
+
+    // ---- video-control write lines (vctrl_wr_dbg, above) -----------------
+    logic [7:0]  vc_min, vc_max, vc_min_f, vc_max_f;
+    logic [15:0] vc_cnt, vc_cnt_f;
+    wire  [7:0]  vc8 = vid_vcnt[8] ? 8'hFF : vid_vcnt[7:0];
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            vc_min <= 8'hFF; vc_max <= 8'd0; vc_cnt <= 16'd0;
+            vc_min_f <= 8'hFF; vc_max_f <= 8'd0; vc_cnt_f <= 16'd0;
+        end else if (vbl_rise) begin
+            vc_min_f <= vc_min; vc_max_f <= vc_max; vc_cnt_f <= vc_cnt;
+            vc_min <= 8'hFF; vc_max <= 8'd0; vc_cnt <= 16'd0;
+        end else if (cpu_wr && sel_vctrl) begin
+            if (vc8 < vc_min) vc_min <= vc8;
+            if (vc8 > vc_max) vc_max <= vc8;
+            if (vc_cnt != 16'hFFFF) vc_cnt <= vc_cnt + 16'd1;
+        end
+    end
+    assign vctrl_wr_dbg = {vc_min_f, vc_max_f, vc_cnt_f};
 
     // ---- per-region write counters --------------------------------------
     // These are the "is the game actually rendering" readout: a running

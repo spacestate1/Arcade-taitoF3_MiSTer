@@ -31,6 +31,7 @@ module rf_selftest_page (
     output logic  [5:0] b_char
 );
 
+    (* ramstyle = "M10K" *)
     logic [5:0] rom [0:1479];
 
     initial begin
@@ -731,22 +732,22 @@ module rf_selftest_page (
         rom[ 677] = 6'd 0;
         rom[ 678] = 6'd 0;
         rom[ 679] = 6'd 0;
-        // row 17: 'FOLDSEQ N  :N-1'
-        rom[ 680] = 6'd38;
-        rom[ 681] = 6'd47;
-        rom[ 682] = 6'd44;
-        rom[ 683] = 6'd36;
-        rom[ 684] = 6'd51;
-        rom[ 685] = 6'd37;
-        rom[ 686] = 6'd49;
-        rom[ 687] = 6'd 0;
+        // row 17: 'VCTRL MIN:MAX:N'
+        rom[ 680] = 6'd54;
+        rom[ 681] = 6'd35;
+        rom[ 682] = 6'd52;
+        rom[ 683] = 6'd50;
+        rom[ 684] = 6'd44;
+        rom[ 685] = 6'd 0;
+        rom[ 686] = 6'd45;
+        rom[ 687] = 6'd41;
         rom[ 688] = 6'd46;
-        rom[ 689] = 6'd 0;
-        rom[ 690] = 6'd 0;
-        rom[ 691] = 6'd26;
-        rom[ 692] = 6'd46;
-        rom[ 693] = 6'd13;
-        rom[ 694] = 6'd17;
+        rom[ 689] = 6'd26;
+        rom[ 690] = 6'd45;
+        rom[ 691] = 6'd33;
+        rom[ 692] = 6'd56;
+        rom[ 693] = 6'd26;
+        rom[ 694] = 6'd46;
         rom[ 695] = 6'd 0;
         rom[ 696] = 6'd 0;
         rom[ 697] = 6'd 0;
@@ -772,22 +773,22 @@ module rf_selftest_page (
         rom[ 717] = 6'd 0;
         rom[ 718] = 6'd 0;
         rom[ 719] = 6'd 0;
-        // row 18: 'FOLDSEQ N-2:N-3'
+        // row 18: 'FLIP LATE:WLATE'
         rom[ 720] = 6'd38;
-        rom[ 721] = 6'd47;
-        rom[ 722] = 6'd44;
-        rom[ 723] = 6'd36;
-        rom[ 724] = 6'd51;
-        rom[ 725] = 6'd37;
-        rom[ 726] = 6'd49;
-        rom[ 727] = 6'd 0;
-        rom[ 728] = 6'd46;
-        rom[ 729] = 6'd13;
-        rom[ 730] = 6'd18;
-        rom[ 731] = 6'd26;
-        rom[ 732] = 6'd46;
-        rom[ 733] = 6'd13;
-        rom[ 734] = 6'd19;
+        rom[ 721] = 6'd44;
+        rom[ 722] = 6'd41;
+        rom[ 723] = 6'd48;
+        rom[ 724] = 6'd 0;
+        rom[ 725] = 6'd44;
+        rom[ 726] = 6'd33;
+        rom[ 727] = 6'd52;
+        rom[ 728] = 6'd37;
+        rom[ 729] = 6'd26;
+        rom[ 730] = 6'd55;
+        rom[ 731] = 6'd44;
+        rom[ 732] = 6'd33;
+        rom[ 733] = 6'd52;
+        rom[ 734] = 6'd37;
         rom[ 735] = 6'd 0;
         rom[ 736] = 6'd 0;
         rom[ 737] = 6'd 0;
@@ -854,22 +855,22 @@ module rf_selftest_page (
         rom[ 797] = 6'd 0;
         rom[ 798] = 6'd 0;
         rom[ 799] = 6'd 0;
-        // row 20: 'USEDSEQ N-2:N-3'
-        rom[ 800] = 6'd53;
-        rom[ 801] = 6'd51;
-        rom[ 802] = 6'd37;
-        rom[ 803] = 6'd36;
-        rom[ 804] = 6'd51;
-        rom[ 805] = 6'd37;
-        rom[ 806] = 6'd49;
-        rom[ 807] = 6'd 0;
-        rom[ 808] = 6'd46;
-        rom[ 809] = 6'd13;
-        rom[ 810] = 6'd18;
-        rom[ 811] = 6'd26;
-        rom[ 812] = 6'd46;
-        rom[ 813] = 6'd13;
-        rom[ 814] = 6'd19;
+        // row 20: 'FLUSH:SHORT'
+        rom[ 800] = 6'd38;
+        rom[ 801] = 6'd44;
+        rom[ 802] = 6'd53;
+        rom[ 803] = 6'd51;
+        rom[ 804] = 6'd40;
+        rom[ 805] = 6'd26;
+        rom[ 806] = 6'd51;
+        rom[ 807] = 6'd40;
+        rom[ 808] = 6'd47;
+        rom[ 809] = 6'd50;
+        rom[ 810] = 6'd52;
+        rom[ 811] = 6'd 0;
+        rom[ 812] = 6'd 0;
+        rom[ 813] = 6'd 0;
+        rom[ 814] = 6'd 0;
         rom[ 815] = 6'd 0;
         rom[ 816] = 6'd 0;
         rom[ 817] = 6'd 0;

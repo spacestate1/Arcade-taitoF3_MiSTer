@@ -129,6 +129,9 @@ module rf_hiscore
                                 : (total - 8'd1);
     endfunction
 
+    typedef enum logic [2:0] { H_IDLE, H_SETTLE, H_GUARD, H_INJ, H_CAP, H_DONE } hst_t;
+    hst_t hst;
+
     // ---- the shadow: 64 x 16, LE within the word, ONE writer -------------
     (* ramstyle = "MLAB, no_rw_check" *) logic [15:0] shadow [0:63];
 
@@ -139,15 +142,31 @@ module rf_hiscore
     logic  [5:0] ld_pw;
     logic [15:0] ld_pd;
 
-    // save-side read, registered once so the word holds while the HPS
-    // clocks it out
+    // ONE read port, address-muxed. Two read ports at different addresses is
+    // what stopped Quartus inferring memory here at all ("can't infer memory
+    // for variable 'shadow'", warning 10999), so 64 x 16 was built as ~1,024
+    // flip-flops and TWO 64:1 muxes -- and LABs, not ALMs, are what this
+    // design runs out of. RESOURCES.md has called this the best free lever in
+    // the design for weeks; the 2026-09-11 fit missed by 16 LABs and this is
+    // what paid for it.
+    //
+    // Safe because the two readers are disjoint in time: sv_word is driven by
+    // the HPS only while ioctl_upload is asserted, and sh_idx is only read in
+    // H_GUARD and H_INJ, which run off the vblank poll after a load. The FSM
+    // keeps priority in those two states so that a save arriving mid-restore
+    // cannot corrupt the restore -- it would delay the save's word, and a
+    // wrong high-score table is worse than a late one.
+    logic  [7:0] sh_idx;
+    wire        fsm_reading = (hst == H_GUARD) || (hst == H_INJ);
+    wire  [5:0] sh_addr     = sh_idx[6:1];
+    wire  [5:0] rd_addr     = (ioctl_upload && !fsm_reading) ? sv_word : sh_addr;
+    wire [15:0] rd_q        = shadow[rd_addr];
+
     logic [15:0] sv_q;
-    always_ff @(posedge clk) sv_q <= shadow[sv_word];
+    always_ff @(posedge clk) sv_q <= rd_q;
     assign sv_data = sv_q;
 
-    // FSM-side byte read of the shadow (its own address = its own port)
-    logic  [7:0] sh_idx;
-    wire  [15:0] sh_word = shadow[sh_idx[6:1]];
+    wire  [15:0] sh_word = rd_q;
     wire   [7:0] sh_byte = sh_idx[0] ? sh_word[15:8] : sh_word[7:0];
 
     // even 68k byte address = UPPER lane (UDS)
@@ -156,8 +175,6 @@ module rf_hiscore
     endfunction
 
     // ---- FSM -------------------------------------------------------------
-    typedef enum logic [2:0] { H_IDLE, H_SETTLE, H_GUARD, H_INJ, H_CAP, H_DONE } hst_t;
-    hst_t hst;
     logic       injected;               // the table has been written at least once
     assign      injected_o = injected;
     logic       poll_done;              // done: no (further) poll will help

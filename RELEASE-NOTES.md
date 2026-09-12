@@ -75,6 +75,56 @@ thirteen generated MRAs had the wrong game id and nothing caught it.
 
 ---
 
+## Rayforce_20260912
+
+- **Darius Gaiden's background objects are the right colours.** The big
+  towers early in the first level were red and gold instead of blue-grey
+  steel, and only corrected themselves when the boss arrived. Fixed.
+- **Composite and S-video CRTs get colour.** The Y/C encoder is compiled in
+  again, paid for by dropping the HPS audio-in stream no arcade core uses.
+- **New: Flip Analog Out.** Turns the raw 15 kHz picture upside down, for a
+  vertical CRT mounted the other way round. Costs one frame of latency while
+  it is on and forces Rotate off. Ray Force and Gunlock players have a
+  zero-latency alternative in the game's own service menu.
+- **Kaiser Knuckle and Dan-Ku-Ga have all six buttons.** Three punches over
+  three kicks, in the standard arcade layout.
+- **Every game exposes four buttons, with one pad layout across the library.**
+  Arabian Magic's Magic button and Command War's third button did nothing
+  before because the MRA only ever declared two.
+- **CPU Speed settings 1-3 no longer freeze the game.** They had frozen every
+  game within a frame since the setting was added.
+- **The Scandoubler Fx menu entry is gone.** The logic behind it was tied off,
+  so it was offering a control that did nothing. MiSTer's own Shadow Mask,
+  Gamma and Scaling Filter still work.
+
+### What the Darius fix actually was
+
+The colours were never corrupt. They were the game's **own palette content
+from a few frames earlier** -- matched byte-for-byte against MAME's dump of
+the frame before the level transition. Zone A entry makes 39 palette-copy
+requests into a 32-entry queue, and the game's own enqueue routine discards
+the excess in silence (ROM 0x167C: `cmpi.w #$20,d2 / bge`, no retry). Which
+requests lose depends on where the frame boundary falls.
+
+A one-cycle ROM-fetch speedup in `rf_main.sv` -- added the same day, and
+whose comment claimed the default CPU speed stayed "bit-identical" -- moved
+that boundary, and the tower palette blocks became the losers. Reverting the
+one line fixes it. The comment was wrong: it covered the wait-state
+qualification added in the same edit, not the fetch path.
+
+Found by bisecting bitstreams that had already been built, which cost no
+compile time: 20260909, yc_10210215 and flip_11083215 render Zone A
+correctly; btn_11111210 and cpu6btn_11120616 do not. That bracketed the cause
+to four files in a three-hour window before a single new build was spent.
+Five theories argued from the source died against the board first, including
+"the CPU is too slow, speed it up" -- the x1.27 setting was already on in a
+captured red frame.
+
+Verified by an automated Zone A capture rather than by eye: the virtual pad
+drives the game to the towers and every screenshot is scored by exact-RGB
+match against the two palette states. 0 stale pixels here against 4,000-7,000
+before.
+
 ## Rayforce_20260909
 
 - **Bubble Bobble II and Bubble Memories: the backgrounds and on-screen text
