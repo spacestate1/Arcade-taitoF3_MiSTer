@@ -75,6 +75,45 @@ thirteen generated MRAs had the wrong game id and nothing caught it.
 
 ---
 
+## Rayforce_20260913
+
+Build stamp `13133540`.
+
+- **Flip Analog Out works.** It was in last week's menu but did nothing: turning
+  it on switched rotation off and left the picture exactly as it was. A vertical
+  CRT mounted the other way round can be corrected from the OSD again.
+- Nothing else changes for any game. With the option off, this build behaves
+  exactly as `Rayforce_20260912` did.
+
+### Why it did nothing
+
+The feature was whole and correct; it was simply not plugged in. `Rayforce.sv`
+instantiates `rf_video_pipe` without connecting its `out_flip` input, because
+the 2026-09-11 diagnostic revert -- which pulled the flip machinery out of the
+top level to bisect the Darius Gaiden palette regression -- was never undone
+once the cause turned out to be in `rf_main.sv`. Quartus ties a dangling input
+low and deletes everything downstream of it, so `rf_out_flip`, `rf_ddr_tag_mux`
+and the display buffer were absent from the shipped bitstream entirely: they
+appear **zero** times in `Rayforce_20260912`'s fit report, against hundreds of
+mentions for every other module. Its map report said so in one line nobody
+reads:
+
+```
+; out_flip ; Input ; Warning ; Declared by entity but not connected by instance.
+```
+
+Turning the option on was worse than leaving it off, because `eff_no_rotate`
+still honoured it: rotation went away and nothing was flipped in exchange.
+
+Verified on hardware rather than by eye: six captures in each state with
+Rotate: None so the flip was the only variable, scored against each other.
+**100.0 % of pixels identical when rotated 180 degrees** (87.5 % upright, which
+is what proves the picture is not symmetric), and the board's own `FLIP
+LATE:WLATE` instrument -- hardwired to zero in the previous build, live for the
+first time in this one -- reads `00000000` with the flip on: no display line
+missed its raster, no writer line overran. Cost +307 ALMs and +3 M10K
+(41,607/41,910 and 551/553); core clocks met.
+
 ## Rayforce_20260912
 
 - **Darius Gaiden's background objects are the right colours.** The big
@@ -86,6 +125,10 @@ thirteen generated MRAs had the wrong game id and nothing caught it.
   vertical CRT mounted the other way round. Costs one frame of latency while
   it is on and forces Rotate off. Ray Force and Gunlock players have a
   zero-latency alternative in the game's own service menu.
+  **CORRECTION (2026-09-13): this did not work in this build.** The option
+  appeared in the menu and turned rotation off, but flipped nothing -- the
+  machinery behind it was left unconnected and Quartus deleted it. Use
+  `Rayforce_20260913`.
 - **Kaiser Knuckle and Dan-Ku-Ga have all six buttons.** Three punches over
   three kicks, in the standard arcade layout.
 - **Every game exposes four buttons, with one pad layout across the library.**

@@ -121,10 +121,10 @@ what each lever costs. Read it before adding anything to the RTL.
 ## How to run it
 
 1. Copy the newest `releases/Rayforce_*.rbf` to `/media/fat/_Arcade/cores/`.
-   Today that is **`Rayforce_20260908.rbf`** (build stamp `08154107`). It is
-   the only bitstream that runs the whole library: the earlier ones predate
-   the 42 MB map profile and the 17-bit sprite codes, so most of the games
-   below either will not load or will render as coloured noise on them.
+   Today that is **`Rayforce_20260913.rbf`** (build stamp `13133540`). Take
+   the newest: the releases before `Rayforce_20260908` predate the 42 MB map
+   profile and the 17-bit sprite codes, so most of the games below either
+   will not load or will render as coloured noise on them.
    [RELEASE-NOTES.md](RELEASE-NOTES.md) says what changed in each.
 
    **One bitstream runs every game.** Each `.mra` names it (`<rbf>Rayforce</rbf>`)
@@ -240,7 +240,8 @@ no longer go through it.
 - **Flip Screen** — 180° on the rotated output. HDMI only: it acts on the
   rotation framebuffer, which the analog output never passes through.
 - **Flip Analog Out** — 180° on the raw 15 kHz output, for a vertical CRT
-  mounted the other way round. Costs one frame of latency while on (the
+  mounted the other way round. **Needs `Rayforce_20260913` or newer**: it was
+  in `Rayforce_20260912`'s menu but did nothing there. Costs one frame of latency while on (the
   raster is buffered through DDR3 and read back reversed; it cannot be drawn
   bottom-up, the F3's per-line state runs top-down) and forces Rotate off,
   so HDMI shows the same flipped raster, unrotated. Off, the analog path is

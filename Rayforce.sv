@@ -1752,16 +1752,21 @@ rf_video_pipe vpipe
     .sgfx_base_lo(map_sgfx_lo), .sgfx_base_hi(map_sgfx_hi),
     .ddr_burstcnt(fb_burstcnt), .ddr_addr(fb_addr), .ddr_din(fb_din),
     .ddr_be(fb_be), .ddr_we(fb_we), .ddr_rd(fb_rd),
-    .ddr_busy(fb_busy), .ddr_dout(fb_dout), .ddr_dout_ready(fb_dout_ready)
+    .ddr_busy(fb_busy), .ddr_dout(fb_dout), .ddr_dout_ready(fb_dout_ready),
+    // Flip Analog Out. These three were left UNCONNECTED by the 2026-09-11
+    // diagnostic revert, which took the flip machinery out of the top level
+    // while the Darius Gaiden stale-palette regression was being bisected.
+    // A dangling input is tied low, so Quartus pruned rf_out_flip, the tag
+    // mux and the display buffer, and the OSD option Rayforce_20260912
+    // shipped flipped nothing -- while still forcing rotation off through
+    // eff_no_rotate, so turning it on was worse than leaving it alone.
+    //
+    // That bisect ACQUITTED this machinery: flip_11083215, the build that
+    // introduced it, renders Zone A correctly. The cause was the one-cycle
+    // ROM-fetch speedup in rf_main.sv (RELEASE-NOTES, Rayforce_20260912), and
+    // it is reverted. So the diagnostic revert is undone here.
+    .out_flip(out_flip), .dbg_flip(vid_dbg_flip), .dbg_flush(vid_dbg_flush)
 );
-// DIAGNOSTIC BUILD 2026-09-11: rf_video_pipe is reverted to its committed
-// shape to find the Darius Gaiden stale-palette regression. The bisect put it
-// between flip_11083215 (clean) and btn_11111210 (red), and bypassing the tag
-// mux and the 3-bank line buffer (build 11214427) did NOT fix it -- so the
-// cause is elsewhere in this file's flip work. With the whole thing out, a
-// clean Zone A proves that; a red one clears the file entirely.
-assign vid_dbg_flip  = 32'd0;
-assign vid_dbg_flush = 16'd0;
 
 ///////////////////  SELF TEST PAGE + UART DEBUG  ////////////////
 //
