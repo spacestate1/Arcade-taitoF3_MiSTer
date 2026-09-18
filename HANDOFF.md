@@ -151,6 +151,112 @@ the board's sound is MAME's, sample for sample, for the first time.** The story 
 
 ---
 
+## 2026-09-17 — The playfield tile code was 15 bits, and four games' pictures paid for it
+
+A player played Twin Cobra II through and reported two faults: **the fade
+transition and the picture on the SCORE RANKING screen are corrupted.** Both
+are fixed, measured off-board first and then on the board.
+
+### Root cause
+
+`rtl/rf_video_pf.sv` truncated the playfield tile code to 15 bits:
+
+```systemverilog
+gfx_code <= pf_q[14:0];      // was
+gfx_code <= pf_q;            // is
+```
+
+MAME takes the whole word -- `taito_f3_v.cpp` `get_tile_info`:
+`tileinfo.set(3, tilep[1], ...)`, unmasked. So every tile numbered 0x8000 or
+above drew the tile 0x8000 below it.
+
+A 15-bit code reaches 32768 tiles x 128 bytes = **4 MB**, and that is exactly
+the largest `tilemap` region in the library except for **four parent sets with
+6 MB: tcobra2, kaiserkn, dankuga, kirameki** (8 of 100 sets counting clones).
+Every other game was unaffected, which is why this survived to now -- and
+within those four it only shows where the game uses the top of its tile ROM.
+Games keep common gameplay tiles low and one-off pictures high, so the fault
+landed on title screens, transitions and ranking art while ordinary play
+looked right. All three affected sets that run had passed "renders and takes
+coins".
+
+Twin Cobra II's numbers: the title emblem uses codes to **0x9F64**, the fade
+and the ranking picture to **0x8F74**.
+
+**The sprite path was already 17 bits** (`rf_spr_gfx_bus.sv:64`), widened for
+Kaiser Knuckle when it rendered as coloured noise. The playfield path was not
+widened with it. That asymmetry IS the bug.
+
+### What was ruled out first, and by what
+
+- **The pivot (pixel) layer.** Twin Cobra II touches pivot RAM exactly once,
+  at boot, from PC 000CF6 -- a full 64 KB read-and-write sweep -- and the RAM
+  reads **all zero for three minutes of attract**. The layer is unused, so
+  `rf_pivot_bus`'s documented 8 KB CPU read-back aliasing could not be it.
+- **Sprite lag.** MAME's `f3_config_table` gives `{ KTIGER2, 0, 0 }` -- lag 0,
+  one of only two sets in the library that want 0, where this engine is
+  structurally lag 2. A real mismatch, but rendering these frames at lag 2
+  against lag 0 differs by **0 pixels**: the screens are static. Still open as
+  a general issue; not this one.
+
+### Evidence, in the order it was taken
+
+1. **Model vs MAME**, `F3_EXTEND=0 F3_VIS=f3 --lag 0`: **0/74240** on all three
+   screens (4140 title, 4770 fade, 4860 ranking). So the renderer design
+   understands this game completely and the fault is in the RTL.
+2. **Model with the code masked to 15 bits**: 92.8 % and 86.7 % of pixels
+   wrong, the pictures replaced by scrambled gameplay tiles with the text and
+   sprite layers intact -- the reported symptom.
+3. **RTL bench**: `make tc2-pipe-all`, **74240/74240 on all three**. Negative
+   control with the truncation put back: **5375/74240**. A bench that cannot
+   fail proves nothing, so that control is the point.
+4. **Board**, build `17204416`: the title screen capture is **0 of 74240
+   pixels different from MAME's frame 4140**. The ranking screen is 96.94 %,
+   with every differing pixel inside the 48-pixel band holding the high-score
+   table -- the board's NVRAM has different scores than MAME's fresh one.
+5. The player reports **Kaiser Knuckle's graphics improved** with the same
+   build. Not pixel-checked.
+
+### What else changed
+
+- `sim/pipe_top.sv` + `sim/pipe_tb.cpp`: **`F3_MAP=1` selects the 42 MB SDRAM
+  map**. The bench had profile 0's bases hardcoded, and a profile 1 game could
+  not be benched at all -- Twin Cobra II's 6 MB tilemap does not fit profile
+  0's 4 MB slot, so loading `tilemap_hi` after it overwrote the top 2 MB of
+  tiles with zeros. This is why no profile 1 game had ever been through the
+  pipe bench.
+- `sim/pf_top.sv` and `sim/mix_top.sv` declared `gfx_code` at **14** bits,
+  narrower than the RTL they instantiate.
+- `sim/Makefile`: `tc2-pipe-all`, with the dump recipe in the comment.
+
+### Build and regression
+
+`17204416`, 48:09, 0 errors. **Core clocks met: +1.389 and +1.563 ns** -- the
+-0.224 ns `rf_video_spr_list:walker` path that blocked the 2026-09-13
+instrument build did not recur at this fit. 41,633/41,910 ALMs (99 %),
+551/553 M10K. The HDMI PLL misses by -0.205 ns, which is the recurring fitter
+congestion this design has shown since B10, not core logic.
+
+Regression, all on the fixed tree: `make gfx` 584/584, `make pipe`
+71680/71680, `ear-pipe-all` 10/10, `bb2-pipe-all` 20/20, `bmem-pipe-all`
+24/24. On the board, Ray Force still reads `WRITE HASH 10620931 PASS`.
+
+**Note `make bubble-all` stops before its pipe targets**: `bb2-spr-line-all`
+fails at frame 1799 with 0 pixel diffs and 46 used-flag diffs -- the same
+pre-existing used-flag class as Ray Force's frame 4200 -- and with pipefail
+set that halts the gate. Run `bb2-pipe-all` and `bmem-pipe-all` by name.
+
+### Open
+
+- The fade transition was **not** captured on the board (screenshots were 5 s
+  apart and it is brief). It draws the same tiles as the two screens that were
+  measured exact, and it is 74240/74240 in the bench, so it is fixed by
+  inference rather than by measurement.
+- Kirameki Star Road has the same 6 MB tilemap and still has no MRA.
+- The player's issue list stopped at 1; there may be more.
+
+---
+
 ## 2026-09-13 — Flip Analog Out was never wired up; the EAR seam gets an instrument
 
 Two things happened. The first is finished and pushed; the second is a

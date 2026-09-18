@@ -259,6 +259,43 @@ bmem-spr-line-all: obj_dir/sprlinetb
 
 bubble-all: bb2-spr-line-all bmem-spr-line-all bb2-pipe-all bmem-pipe-all
 
+# ---- Twin Cobra II -------------------------------------------------------
+# The first profile 1 game in the bench: F3_MAP=1 (the 42 MB SDRAM layout,
+# whose tilemap slot is 6 MB where profile 0's is 4 MB), extend=0, the base
+# f3 visarea, and F3_LAG=0 -- MAME's f3_config_table gives KTIGER2 sprite_lag
+# 0, one of only two sets in the whole library that want 0.
+#
+# This scene exists because it is what found the 15-bit playfield tile code.
+# Every other game dumped in this tree keeps its codes under 0x8000; Twin
+# Cobra II's title emblem reaches 0x9F64 and its SCORE RANKING picture 0x8F74,
+# so a 15-bit code drew tile code-0x8000 instead and the pictures came out as
+# scrambled gameplay tiles. Frame 4140 scores 5375/74240 with the truncation
+# and 74240/74240 without it, so this target FAILS if it ever comes back.
+#
+# Regenerate the dumps (they are not in the repository):
+#   F3DUMP_REGIONS=1 F3DUMP_DIR=dump/tcobra2 F3DUMP_FRAMES=4140,4770,4860 \
+#   SDL_VIDEODRIVER=dummy mame tcobra2 -rompath /storage02/roms/mame \
+#     -video none -sound none -nothrottle -norotate \
+#     -autoboot_script tools/oracle_f3dump.lua -seconds_to_run 85
+#
+#   4140 title emblem   4770 the fade transition   4860 SCORE RANKING
+tc2_FRAMES = 4140 4770 4860
+
+# The pipefail at the top of this file makes a mismatching bench fail the
+# sweep; the case below additionally pins the EXACT count, so a bench that
+# starts passing vacuously (a comparison that compares nothing) is caught too.
+tc2-pipe-all: obj_dir/pipetb
+	@for f in $(tc2_FRAMES); do \
+	  printf 'tc2   frame %5s: ' $$f; \
+	  F3_MAP=1 F3_EXTEND=0 F3_VIS=f3 F3_LAG=0 \
+	    python3 gen_pipe_ref.py ../dump/tcobra2 $$f > pipe_ref_tc2_$$f.txt; \
+	  out=`F3_MAP=1 F3_EXTEND=0 F3_LAG=0 F3_V0=24 F3_V1=256 \
+	    ./obj_dir/pipetb ../dump/tcobra2 $$f pipe_ref_tc2_$$f.txt \
+	    pipe_out_tc2_$$f.ppm 2>&1 | tail -1`; \
+	  echo "$$out"; \
+	  case "$$out" in 74240/74240*) ;; *) echo "   FAILED"; exit 1;; esac; \
+	done
+
 spr-ghost: obj_dir/sprlinetb spr_fb_ref_3000.txt spr_fb_ref_300.txt
 	./obj_dir/sprlinetb ../dump 3000 spr_fb_ref_3000.txt 300 spr_fb_ref_300.txt
 

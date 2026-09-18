@@ -92,7 +92,18 @@ module pipe_top (
     output logic [15:0] dbg_short,     // rf_spr_fb: reads that under-delivered
     // f3_config_table extend; the bench's games are all extend=1, so the
     // testbench leaves this at 1 unless it is driving a 32x32 set
-    input  logic        extend
+    input  logic        extend,
+    // The SDRAM map profile (Rayforce.sv map_tile_lo..map_sgfx_hi). Profile 0
+    // is the 18.5 MB layout every dumped reference used; profile 1 is the
+    // 42 MB one, which the fourteen largest sets need -- and which has to be
+    // reachable here, or a profile 1 game can never be put through the pipe.
+    // Twin Cobra II is the first: its 6 MB tilemap does not even FIT profile
+    // 0's 4 MB slot, so with the old hardcoded bases its tiles landed on top
+    // of tilemap_hi.
+    input  logic [26:1] tile_base_lo,
+    input  logic [26:1] tile_base_hi,
+    input  logic [26:1] sgfx_base_lo,
+    input  logic [26:1] sgfx_base_hi
 );
 
     logic [26:1] a_lo_addr, a_hi_addr, b_lo_addr, b_hi_addr;
@@ -112,9 +123,8 @@ module pipe_top (
         .line_addr(line_addr), .line_q(line_q),
         .pf_addr(pf_addr),     .pf_q(pf_q),
         .pal_addr(pal_addr),   .pal_q(pal_q), .pal12(pal12),
-        // SDRAM map profile 0 -- the layout every dumped reference used
-        .tile_base_lo(26'h440000), .tile_base_hi(26'h640000),
-        .sgfx_base_lo(26'h140000), .sgfx_base_hi(26'h340000),
+        .tile_base_lo(tile_base_lo), .tile_base_hi(tile_base_hi),
+        .sgfx_base_lo(sgfx_base_lo), .sgfx_base_hi(sgfx_base_hi),
         .text_addr(text_addr), .text_q(text_q),
         .char_addr(char_addr), .char_q(char_q),
         .pivot_addr(pivot_addr), .pivot_q(pivot_q),

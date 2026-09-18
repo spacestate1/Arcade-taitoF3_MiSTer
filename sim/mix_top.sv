@@ -81,7 +81,7 @@ input  logic        clk,
     end
     assign busy = line_busy | line_busy_d | pf_go | pf_busy;
 
-    logic [13:0] gfx_code; logic [3:0] gfx_row; logic gfx_req, gfx_valid, gfx_busy;
+    logic [15:0] gfx_code; logic [3:0] gfx_row; logic gfx_req, gfx_valid, gfx_busy;
     logic [95:0] gfx_pix;
     logic pf_rd_start, pf_rd_step, x_req;
     logic [8:0] x_req_x;

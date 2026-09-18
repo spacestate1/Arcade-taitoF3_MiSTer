@@ -25,6 +25,7 @@ boot through the same F3 code and hash to 10620931.
 | sprite lag | 0, 1, 2 (2 sets want 0, 24 sets want 1, 9 sets want 2) | **NOT expressible** — the engine is structurally lag 2. Field reserved at index 2 `[4:3]` |
 | 12-bit palette | `spcinvdj`, `ridingf`, `arabianm`, `ringrage` | **implemented** 2026-09-08 (`cfg_pal12`). Per game, as MAME does it; MRA index 2 `[5]` also turns it on |
 | game id | 35 parents | 6 bits = 64 ids, so the field can name every one |
+| playfield tile code | 16 bits. Four parents have a 6 MB `tilemap` and use codes above 0x8000 | **16 bits since 2026-09-17.** It was 15, which reaches 32768 tiles = 4 MB, so those four drew the wrong tile for every code >= 0x8000. The sprite code was widened to 17 bits for Kaiser Knuckle and the playfield was left behind |
 
 ## Every parent set
 
@@ -101,12 +102,12 @@ actually been given one; the rest show `-`.
 | `lightbr` | 16.25 MB | **no** (sprites) | - |  |
 | `quizhuhu` | 16.25 MB | **no** (sprites) | - |  |
 | `landmakr` | 16.50 MB | yes | - |  |
-| `tcobra2` | 17.25 MB | **no** (sprites, tilemap) | - |  |
+| `tcobra2` | 17.25 MB | **no** (sprites, tilemap) | - | **runs**; 6 MB tilemap, needs the 16-bit tile code |
 | `puchicar` | 18.50 MB | **no** (sprites) | - |  |
 | `pwrgoal` | 19.50 MB | **no** (sprites) | - |  |
-| `kaiserkn` | 26.50 MB | **no** (sprites, tilemap) | - |  |
-| `dankuga` | 26.50 MB | **no** (sprites, tilemap) | - |  |
-| `kirameki` | 31.00 MB | **no** (audiocpu, sprites, tilemap) | - |  |
+| `kaiserkn` | 26.50 MB | **no** (sprites, tilemap) | - | renders; 6 MB tilemap, needs the 16-bit tile code |
+| `dankuga` | 26.50 MB | **no** (sprites, tilemap) | - | renders; 6 MB tilemap, needs the 16-bit tile code |
+| `kirameki` | 31.00 MB | **no** (audiocpu, sprites, tilemap) | - | no MRA; 6 MB tilemap, will need the 16-bit tile code |
 
 `*12-bit*` marks the four sets needing the 12-bit palette, implemented
 2026-09-08. **Every set above fits profile 1**, so the `profile 0` column is

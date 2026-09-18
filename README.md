@@ -29,6 +29,8 @@ needs sound-ROM banking the core does not implement.
 | *Darius Gaiden* + *Extra Version* | Both render. Use the pixel layer, which this core only mirrors. |
 | *Bubble Memories* | Runs. Same pivot fix as Bubble Bobble II. Its EEPROM has never been written, so it asks for the TEST switch on a fresh card: OSD -> Service Mode -> reset, once. |
 | *Arkanoid Returns, Grid Seeker, Space Invaders '95, Cleopatra Fortune, Twin Qix, Recalhorn, Quiz Theater, Pop 'n Pop, Gekirindan* | Render and take coins. Added 2026-09-08, none played through. |
+| *Twin Cobra II* | Plays. Its title emblem, fade transition and SCORE RANKING picture were corrupt until 2026-09-17: the playfield tile code was truncated to 15 bits and this game's pictures use codes to 0x9F64. Fixed and measured on hardware -- the title screen is 0 of 74,240 pixels different from MAME. |
+| *Kaiser Knuckle* + *Dan-Ku-Ga* | Render, and their graphics improved with the same 2026-09-17 tile-code fix (player-reported, not pixel-checked). They share Twin Cobra II's 6 MB tilemap, so they had the same fault. |
 | *Arabian Magic, Riding Fight, Ring Rage* | Render. These are the 12-bit palette games. |
 | The 13 largest sets | MRAs written against the 42 MB map profile; **not yet confirmed** on hardware. |
 
@@ -60,6 +62,21 @@ nobody has played far enough to find a fault in — see the note on what
   the losers; reverting it fixes the colours. Bisected on hardware and verified
   with an automated Zone A capture (0 stale pixels against 4,000-7,000 before).
   Fixed in `Rayforce_20260912`.
+- **TWIN COBRA II, KAISER KNUCKLE, DAN-KU-GA, KIRAMEKI STAR ROAD — pictures
+  built from high tile codes were scrambled: FIXED 2026-09-17.** The playfield
+  tile code was truncated to 15 bits (`rf_video_pf.sv`, `gfx_code <=
+  pf_q[14:0]`) where MAME uses the whole 16-bit word, so any tile numbered
+  0x8000 or above drew the tile 0x8000 below it instead. It only shows on the
+  four parent sets with a **6 MB tilemap** — 4 MB is all a 15-bit code can
+  reach — and only on the screens that use the top of that ROM. Twin Cobra
+  II's title emblem (codes to 0x9F64), its fade transition and its SCORE
+  RANKING picture came out as scrambled gameplay tiles, 93 % of pixels wrong.
+  The sprite path had already been widened to 17 bits for Kaiser Knuckle; the
+  playfield path was left behind. Verified three ways: the model is 0/74,240
+  against MAME on all three screens, `make tc2-pipe-all` puts the RTL at
+  74,240/74,240 on each (and 5,375/74,240 with the truncation put back), and
+  the board's own capture of the title screen is **0 of 74,240 pixels
+  different from MAME**.
 - **ELEVATOR ACTION RETURNS — a horizontal seam while it scrolls
   vertically.** Seen on HDMI and on a CRT alike (2026-09-10), so it is in the
   raster, not in the scaler. **It is NOT the CPU speed**, which this entry
@@ -151,14 +168,14 @@ what each lever costs. Read it before adding anything to the RTL.
 | Bubble Memories | `experimental/Bubble Memories.mra` | `bubblem.zip` | horizontal | boots; needs OSD -> Service Mode once to write its EEPROM |
 | Cleopatra Fortune | `experimental/Cleopatra Fortune.mra` | `cleopatr.zip` | horizontal | renders and takes coins; never played through |
 | Command War | `experimental/Command War.mra` | `commandw.zip` | horizontal | renders and takes coins; never played through |
-| Dan-Ku-Ga | `experimental/Dan-Ku-Ga.mra` | `dankuga.zip` | horizontal | renders and takes coins; never played through |
+| Dan-Ku-Ga | `experimental/Dan-Ku-Ga.mra` | `dankuga.zip` | horizontal | renders; graphics improved by the 2026-09-17 tile-code fix |
 | Darius Gaiden (write ring) | `experimental/Darius Gaiden (write ring).mra` | `dariusg.zip` | horizontal | debug variant: streams CPU writes over serial |
 | Darius Gaiden Extra Version | `experimental/Darius Gaiden Extra Version.mra` | `dariusgx.zip` | horizontal | renders and takes coins; never played through |
 | Gekirindan | `experimental/Gekirindan.mra` | `gekiridn.zip` | vertical | renders and takes coins; never played through |
 | Grid Seeker | `experimental/Grid Seeker.mra` | `gseeker.zip` | vertical | renders and takes coins; never played through |
 | Gunlock (zone 2) | `experimental/Gunlock (zone 2).mra` | `gunlock.zip` (or `rayforce.zip`) | vertical | debug variant: opens at zone 2 |
 | International Cup 94 | `experimental/International Cup 94.mra` | `intcup94.zip` | horizontal | renders and takes coins; never played through |
-| Kaiser Knuckle | `experimental/Kaiser Knuckle.mra` | `kaiserkn.zip` | horizontal | renders and takes coins; never played through |
+| Kaiser Knuckle | `experimental/Kaiser Knuckle.mra` | `kaiserkn.zip` | horizontal | renders; graphics improved by the 2026-09-17 tile-code fix |
 | Land Maker | `experimental/Land Maker.mra` | `landmakr.zip` | horizontal | renders and takes coins; never played through |
 | Light Bringer | `experimental/Light Bringer.mra` | `lightbr.zip` | horizontal | renders and takes coins; never played through |
 | Pop 'n Pop | `experimental/Pop 'n Pop.mra` | `popnpop.zip` | horizontal | renders and takes coins; never played through |
@@ -176,7 +193,7 @@ what each lever costs. Read it before adding anything to the RTL.
 | Taito Cup Finals | `experimental/Taito Cup Finals.mra` | `cupfinal.zip` | horizontal | renders and takes coins; never played through |
 | Taito Power Goal | `experimental/Taito Power Goal.mra` | `pwrgoal.zip` | horizontal | renders and takes coins; never played through |
 | Top Ranking Stars | `experimental/Top Ranking Stars.mra` | `trstar.zip` | horizontal | renders and takes coins; never played through |
-| Twin Cobra II | `experimental/Twin Cobra II.mra` | `tcobra2.zip` | vertical | renders and takes coins; never played through |
+| Twin Cobra II | `experimental/Twin Cobra II.mra` | `tcobra2.zip` | vertical | **played through**; title, transition and ranking pictures fixed 2026-09-17 |
 | Twin Qix | `experimental/Twin Qix.mra` | `twinqix.zip` | horizontal | renders and takes coins; never played through |
 
 All 39 entries above run on the **same** bitstream — each `.mra` names it and

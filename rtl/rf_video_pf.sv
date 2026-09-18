@@ -84,7 +84,7 @@ module rf_video_pf
     input  logic [15:0] pf_q,
 
     // tile fetch (rf_gfx_bus)
-    output logic [14:0] gfx_code,
+    output logic [15:0] gfx_code,
     output logic  [3:0] gfx_row,
     output logic        gfx_req,
     input  logic [95:0] gfx_pix,
@@ -463,7 +463,18 @@ module rf_video_pf
                 // the pending slot must be free to catch this row if it lands
                 // early, and rf_gfx_bus drops a req while busy
                 if (!gfx_busy && !pend_v) begin
-                    gfx_code <= pf_q[14:0];
+                    // The tile number is the WHOLE code word. MAME takes it
+                    // unmasked (taito_f3_v.cpp get_tile_info: tileinfo.set(3,
+                    // tilep[1], ...)), and a 15-bit code here drew tile
+                    // code-0x8000 instead for the four sets with a 6 MB
+                    // tilemap -- Twin Cobra II's title emblem (codes to
+                    // 0x9F64), its fade transition and its SCORE RANKING
+                    // picture (to 0x8F74) all came out as scrambled gameplay
+                    // tiles, 93 % of pixels wrong against MAME. Kaiser
+                    // Knuckle, Dan-Ku-Ga and Kirameki Star Road have the same
+                    // 6 MB tilemap. The sprite path was widened to 17 bits
+                    // for Kaiser Knuckle and this one was left behind.
+                    gfx_code <= pf_q;
                     gfx_row  <= py ^ {4{attr[15]}};
                     gfx_req  <= 1'b1;
                     bst      <= B_WAIT;

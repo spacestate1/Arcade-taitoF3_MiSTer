@@ -86,11 +86,22 @@ int main(int argc, char** argv) {
     int rate60 = argc > 6 ? atoi(argv[6]) : 0;       // 1 = the 257-line 60 Hz frame
 
     char pre[64]; snprintf(pre, sizeof pre, "/f3_%05d_", frame);
-    mem.assign(0x1280000, 0);
-    struct { const char* n; uint32_t off; } regs[] = {
+    // F3_MAP picks the SDRAM map profile, exactly as the MRA's config byte
+    // does on hardware (Rayforce.sv cfg_map). Profile 0 is the 18.5 MB
+    // layout; profile 1 is the 42 MB one, whose tilemap slot is 6 MB rather
+    // than 4 MB. A profile 1 game run at profile 0 does not merely read the
+    // wrong addresses -- its tilemap does not FIT, and loading tilemap_hi
+    // after it overwrites the top 2 MB of tiles with zeros.
+    const int MAP = getenv("F3_MAP") ? atoi(getenv("F3_MAP")) : 0;
+    mem.assign(MAP ? 0x2A00000 : 0x1280000, 0);
+    struct { const char* n; uint32_t off; } regs0[] = {
         {"rgn_tilemap.bin", 0x880000}, {"rgn_tilemap_hi.bin", 0xC80000},
         {"rgn_sprites.bin", 0x280000}, {"rgn_sprites_hi.bin", 0x680000}};
-    for (auto& r : regs) { auto v = load(dir + "/" + r.n); memcpy(&mem[r.off], v.data(), v.size()); }
+    struct { const char* n; uint32_t off; } regs1[] = {
+        {"rgn_tilemap.bin", 0x1900000}, {"rgn_tilemap_hi.bin", 0x1F00000},
+        {"rgn_sprites.bin", 0x500000},  {"rgn_sprites_hi.bin", 0x1200000}};
+    if (MAP) { for (auto& r : regs1) { auto v = load(dir + "/" + r.n); memcpy(&mem[r.off], v.data(), v.size()); } }
+    else      { for (auto& r : regs0) { auto v = load(dir + "/" + r.n); memcpy(&mem[r.off], v.data(), v.size()); } }
     lram   = be16(load(dir + pre + "line_ram.bin"));
     pram   = be16(load(dir + pre + "pf_ram.bin"));
     palram = be16(load(dir + pre + "paletteram.bin"));
@@ -291,6 +302,11 @@ int main(int argc, char** argv) {
     // F3_EXTEND=0 for a 32x32-playfield set (Puzzle Bobble, Darius Gaiden);
     // every game with dumps in this tree today is extend=1
     { const char* e = getenv("F3_EXTEND"); t->extend = (e && !strcmp(e, "0")) ? 0 : 1; }
+    // word bases, i.e. half the byte offsets the regions were loaded at
+    t->tile_base_lo = MAP ? 0x0C80000 : 0x440000;
+    t->tile_base_hi = MAP ? 0x0F80000 : 0x640000;
+    t->sgfx_base_lo = MAP ? 0x0280000 : 0x140000;
+    t->sgfx_base_hi = MAP ? 0x0900000 : 0x340000;
 
     // F3_OUT_FLIP=1: the analog flip. The displayed frame is then LAST
     // frame's raster upside down, so with the VRAM static the compared
