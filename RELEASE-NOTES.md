@@ -75,6 +75,50 @@ thirteen generated MRAs had the wrong game id and nothing caught it.
 
 ---
 
+## Rayforce_20260917
+
+Build stamp `17204416`.
+
+- **Twin Cobra II's title screen, its fade between attract scenes and the
+  picture on the SCORE RANKING screen draw properly.** They were scrambled
+  blocks of gameplay scenery before. The game has now been played through.
+- **Kaiser Knuckle and Dan-Ku-Ga look better** for the same reason. Reported
+  by a player on this build; not measured picture-by-picture the way Twin
+  Cobra II was.
+- Every other game is untouched. Ray Force's write hash is unchanged and all
+  the frame comparisons are identical to `Rayforce_20260913`.
+- For anyone chasing the Elevator Action Returns seam: the self-test row that
+  was `PF WR : SPR WR` is now **`MIX LN : BUILDS`**, and it should read
+  `01000100`. A lower second half while the picture tears is the cause,
+  counted. See [EAR-SEAM.md](EAR-SEAM.md).
+
+### Why the pictures were scrambled
+
+The playfield tile code was truncated to 15 bits where the F3 uses all 16
+(`rf_video_pf.sv`: `gfx_code <= pf_q[14:0]`; MAME's `get_tile_info` passes
+`tilep[1]` unmasked). A 15-bit code reaches 32,768 tiles of 128 bytes = 4 MB,
+and **four parent sets have a 6 MB tilemap**: Twin Cobra II, Kaiser Knuckle,
+Dan-Ku-Ga and Kirameki Star Road. On those four, every tile numbered 0x8000
+or above fetched the tile 0x8000 below it.
+
+That is why it hid for so long. A game keeps its common gameplay tiles low in
+the ROM and its one-off pictures high, so the fault appeared only on title
+screens, transitions and ranking art -- and all three of these sets had
+already passed "renders and takes coins", which looks at exactly the part
+that still worked. Twin Cobra II's emblem uses codes up to `0x9F64`.
+
+The sprite path was widened to 17 bits when Kaiser Knuckle rendered as
+coloured noise; the playfield path was not widened with it, and that
+asymmetry is the whole defect.
+
+Verified in three places rather than by eye. The Python model is **0 of
+74,240 pixels different from MAME** on all three affected screens. The new
+`make tc2-pipe-all` puts the RTL at **74,240/74,240** on each -- and at
+**5,375/74,240** with the truncation deliberately restored, which is what
+proves the test can fail. On the board, a screenshot of the title screen is
+**0 of 74,240 pixels different from MAME's own frame**. Cost +26 ALMs
+(41,633/41,910, 551/553 M10K); core clocks met at +1.389 ns.
+
 ## Rayforce_20260913
 
 Build stamp `13133540`.

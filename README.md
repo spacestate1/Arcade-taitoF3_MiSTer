@@ -140,7 +140,7 @@ what each lever costs. Read it before adding anything to the RTL.
 ## How to run it
 
 1. Copy the newest `releases/Rayforce_*.rbf` to `/media/fat/_Arcade/cores/`.
-   Today that is **`Rayforce_20260913.rbf`** (build stamp `13133540`). Take
+   Today that is **`Rayforce_20260917.rbf`** (build stamp `17204416`). Take
    the newest: the releases before `Rayforce_20260908` predate the 42 MB map
    profile and the 17-bit sprite codes, so most of the games below either
    will not load or will render as coloured noise on them.
