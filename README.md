@@ -263,8 +263,11 @@ no longer go through it.
   in `Rayforce_20260912`'s menu but did nothing there. Costs one frame of latency while on (the
   raster is buffered through DDR3 and read back reversed; it cannot be drawn
   bottom-up, the F3's per-line state runs top-down) and forces Rotate off,
-  so HDMI shows the same flipped raster, unrotated. Off, the analog path is
-  exactly what it was. For Ray Force / Gunlock there is a zero-latency
+  so HDMI shows the same flipped raster, unrotated. **It also suppresses Flip
+  Screen** (`.flip(flip_screen & ~out_flip)`), because both flips and the
+  rotation all want the same DDR3 port. So while this is on, Rotate and Flip
+  Screen both appear dead -- that is the design, not a fault. Off, the analog
+  path is exactly what it was. For Ray Force / Gunlock there is a zero-latency
   alternative: the game's own service menu has SCREEN NORMAL / INVERT, and
   the game flips itself in software. See *On a CRT* below.
 - **Audio Boost** — the real board is very quiet (about 25–30 dB below a
@@ -284,6 +287,24 @@ chooses CW or CCW for the vertical games.
 **Saving settings:** the game writes its EEPROM when a setting changes;
 MiSTer writes that to `config/nvram/<mra>.nvm` when you open the OSD. So:
 change a setting, leave the menu, open the OSD once.
+
+**If a game starts upside down and neither Rotate nor Flip Screen does
+anything**, that game has **Flip Analog Out** saved on. MiSTer keeps the OSD
+settings **per MAME set**, in `/media/fat/config/<setname>.CFG` -- so one game
+can carry it while every other game on the same core is fine, which is exactly
+how it looks like a core fault. The option is bit 21 of the status word in the
+first eight bytes of that file. Turn it off in the OSD, or off the board:
+
+```sh
+# show what each game has saved (bit 21 = Flip Analog Out, bits 7:6 = Rotate)
+for f in /media/fat/config/*.CFG; do
+  printf '%-24s %s\n' "$(basename "$f")" "$(xxd -e -g8 -l8 "$f" | cut -d' ' -f2)"
+done
+```
+
+Seen for real on 2026-09-17: Darius Gaiden carried `0x0000000000200000` from
+the 2026-09-13 flip verification, so it booted upside down on HDMI with Rotate
+and Flip Screen both inert, while every other game was upright.
 
 ### On a CRT
 

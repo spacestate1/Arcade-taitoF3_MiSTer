@@ -255,6 +255,43 @@ set that halts the gate. Run `bb2-pipe-all` and `bmem-pipe-all` by name.
 - Kirameki Star Road has the same 6 MB tilemap and still has no MRA.
 - The player's issue list stopped at 1; there may be more.
 
+### Same night: "Darius Gaiden starts upside down and the rotations do nothing"
+
+Not a core fault and no build involved. **MiSTer saves the OSD status word per
+MAME set**, `/media/fat/config/<setname>.CFG`, and `dariusg.CFG` held
+`0x0000000000200000` -- bit 21, **Flip Analog Out** -- almost certainly left
+there by the 2026-09-13 flip verification. Every other set on the board read
+clean, which is exactly why it looked like a core-wide fault:
+
+```
+dariusg.CFG   0x0000000000200000   Rotate CW   FlipAnalogOut 1   <-- upside down
+tcobra2.CFG   0x0000000000000040   Rotate CCW  FlipAnalogOut 0
+elvactr.CFG   0x0000000000000080   Rotate None FlipAnalogOut 0
+rayforce/kaiserkn/dariusgx/ridingf    all zero
+```
+
+One bit explains both halves of the report. `rf_out_flip` turns the raster
+over inside the core, so the picture is upside down on HDMI as well as on the
+analog output -- and `eff_no_rotate` includes `out_flip`
+(`Rayforce.sv:967`), while screen_rotate is wired `.flip(flip_screen &
+~out_flip)` (`:1968`), so **Rotate AND Flip Screen are both suppressed while
+it is on**. Cleared the bit, reloaded, and Darius Gaiden boots upright; the
+original is kept as `dariusg.CFG.bak` on the card in case the flip was wanted
+for the CRT.
+
+For flipping on HDMI, **Flip Screen (O[14]) is the option**, not Flip Analog
+Out: it drives MiSTer's own `screen_rotate.flip` on the scaler path. It cannot
+be checked from here -- `screenshot` captures the core's raw raster BEFORE the
+scaler, which is why tcobra2's Rotate CCW never shows in its screenshots -- so
+that one needs eyes on the display.
+
+**Still true and NOT fixed by any of this:** Rotate is forced to None for the
+30 horizontal game ids (`cfg_horizontal`, `Rayforce.sv:898`). The comment
+there claimed it "does not take the Rotate option away from anyone"; it does,
+and it now says so. Making it a default rather than an override needs RTL and
+a build -- the st_inherit / sv_inherit pattern already in this file is the
+shape it should take.
+
 ---
 
 ## 2026-09-13 — Flip Analog Out was never wired up; the EAR seam gets an instrument

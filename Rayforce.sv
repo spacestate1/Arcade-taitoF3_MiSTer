@@ -893,8 +893,14 @@ wire [5:0] cfg_game = {game_cfg[10:8], game_cfg[5], game_cfg[7:6]};
 // a <rotation> tag; every id below was read out of one. Unlisted ids default
 // to vertical, so nothing that ran before this changes behaviour.
 //
-// This does not take the Rotate option away from anyone: it only forces the
-// no-rotate case, which is the one a horizontal game always wants.
+// NOTE (2026-09-17): this DOES take the option away, and the sentence that
+// stood here saying otherwise was wrong. For these ids Rotate CW/CCW in the
+// OSD does nothing at all -- a player on a TATE monitor cannot rotate a
+// horizontal game. That is a deliberate trade (rotation costs a frame of
+// input latency, which is what the Darius Gaiden report was about), but it is
+// an override, not a default, and it should be said plainly. If it is ever
+// made a default instead, the pattern is st_inherit / sv_inherit below:
+// ignore the INHERITED value, obey a change the player makes deliberately.
 logic cfg_horizontal;
 always_comb begin
     case (cfg_game)
