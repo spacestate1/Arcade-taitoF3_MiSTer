@@ -62,15 +62,17 @@ nobody has played far enough to find a fault in — see the note on what
   Fixed in `Rayforce_20260912`.
 - **ELEVATOR ACTION RETURNS — a horizontal seam while it scrolls
   vertically.** Seen on HDMI and on a CRT alike (2026-09-10), so it is in the
-  raster, not in the scaler. The likely mechanism is the CPU running at 79 %
-  of a real 68020 (see Darius Gaiden below): a game whose frame work spills
-  past vblank rewrites its scroll registers under the beam, and the line it
-  does so on is the seam. Not proven: the CPU Speed setting that would test
-  it (x1.27, x1.5) freezes this game outright, which is a second fault in
-  that setting. `Rayforce_20260910` adds the instrument -- the self-test row
-  `VCTRL MIN:MAX:N` is the lowest and highest raster line on which the CPU
-  wrote the video control registers last frame; a MAX in the visible area
-  while it tears is the confirmation.
+  raster, not in the scaler. **It is NOT the CPU speed**, which this entry
+  claimed until 2026-09-13: both MAME and the board put every scroll-register
+  write in vblank with twenty lines to spare (`VCTRL MIN:MAX:N` reads
+  `0304000B` on EAR — lines 3-4, where the picture starts at 24). The live
+  theory is in the renderer: the playfield Y position is a running accumulator
+  stepped once per completed line build, and a build that overruns its raster
+  has its next request silently discarded, so one dropped build shifts every
+  line below it by one scroll step. `Rayforce_20260913` adds the instrument
+  that decides it — the self-test row `MIX LN : BUILDS` must read `01000100`
+  (256 lines composed, 256 built); anything less during a tearing scene is the
+  seam, counted. The whole register is in [EAR-SEAM.md](EAR-SEAM.md).
 - **BUBBLE MEMORIES — asks for the TEST switch on a fresh card.** Its 93C46
   EEPROM has never been written, so it boots to "BACKUP DATA FAILED". Turn on
   Service Mode in the OSD and reset, once. Not a fault in the game.

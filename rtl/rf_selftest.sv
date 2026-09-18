@@ -253,16 +253,28 @@ module rf_selftest #(
            reopens. */                                                        \
         5'd18: begin VAL = seq_rec23;  /* FLIP LATE:WLATE */                 \
                  STA = (seq_rec23 == 32'd0) ? ST_PASS : ST_FAIL; end         \
-        /* BORROWED 2026-09-09 (see tools/make_selftest_page.py): the CPU's  \
-           writes split by destination. The Bubble games corrupt the playfield \
-           on hardware while the same frames are 71680/71680 in simulation, so \
-           the wrong data is what the CPU writes, not what the renderer draws \
-           -- and the sim replays MAME's VRAM, so it can never see this. Both \
-           rows report; there is no expectation in RTL. Compare against MAME's \
-           counts for the same attract frame off-board. */                    \
-        5'd19: begin VAL = {pf_wr_cnt, spr_wr_cnt};                          \
+        /* BORROWED 2026-09-13 from PF WR : SPR WR (whose two halves both   \
+           saturate at FFFF within a second of boot and can never move       \
+           again): MIX LN : BUILDS, rf_video_pipe's dbg_lines -- {mixer      \
+           lines composed, playfield lines BUILT} last frame, both reset     \
+           every frame_end. Both must read 0100 = 256.                       \
+                                                                             \
+           This row was on the page once as MIX : BUILD and was removed as   \
+           "the constant 01000100 whenever the pipe runs at all" (see row 22 \
+           below). That was true of every scene anyone had looked at, and it \
+           is exactly what makes it worth reading now: the EAR seam theory   \
+           says a line build that overruns its raster has its next           \
+           line_start SILENTLY DISCARDED (rf_video_pf.sv:388, and the module \
+           header says so at line 48), and the playfield Y accumulator steps \
+           once per COMPLETED build (rf_video_pf.sv:500). One dropped build  \
+           therefore shifts every line below it by one y_scale step, which   \
+           is a horizontal seam, visible only while the playfield scrolls    \
+           vertically -- the reported symptom exactly. BUILDS below 0100     \
+           while EAR tears confirms it and counts it; 0100 throughout a      \
+           tearing scene kills the theory outright. See EAR-SEAM.md. */      \
+        5'd19: begin VAL = vid_lines;   /* MIX LN : BUILDS */                \
                  STA = !cpu_running ? ST_WAIT :                              \
-                       (pf_wr_cnt != 16'd0) ? ST_PASS : ST_BUSY; end         \
+                       (vid_lines == 32'h0100_0100) ? ST_PASS : ST_FAIL; end \
         /* BORROWED 2026-09-11 from USEDSEQ N-2:N-3: FLUSH:SHORT, the DDR3  \
            tag mux's watchdog flushes and rf_spr_fb's short reads. Both     \
            must be zero -- non-zero says the port broke its burst contract, \

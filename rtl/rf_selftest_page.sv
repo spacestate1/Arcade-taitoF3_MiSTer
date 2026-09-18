@@ -814,22 +814,22 @@ module rf_selftest_page (
         rom[ 757] = 6'd 0;
         rom[ 758] = 6'd 0;
         rom[ 759] = 6'd 0;
-        // row 19: 'PF WR  : SPR WR'
-        rom[ 760] = 6'd48;
-        rom[ 761] = 6'd38;
-        rom[ 762] = 6'd 0;
-        rom[ 763] = 6'd55;
-        rom[ 764] = 6'd50;
-        rom[ 765] = 6'd 0;
+        // row 19: 'MIX LN : BUILDS'
+        rom[ 760] = 6'd45;
+        rom[ 761] = 6'd41;
+        rom[ 762] = 6'd56;
+        rom[ 763] = 6'd 0;
+        rom[ 764] = 6'd44;
+        rom[ 765] = 6'd46;
         rom[ 766] = 6'd 0;
         rom[ 767] = 6'd26;
         rom[ 768] = 6'd 0;
-        rom[ 769] = 6'd51;
-        rom[ 770] = 6'd48;
-        rom[ 771] = 6'd50;
-        rom[ 772] = 6'd 0;
-        rom[ 773] = 6'd55;
-        rom[ 774] = 6'd50;
+        rom[ 769] = 6'd34;
+        rom[ 770] = 6'd53;
+        rom[ 771] = 6'd41;
+        rom[ 772] = 6'd44;
+        rom[ 773] = 6'd36;
+        rom[ 774] = 6'd51;
         rom[ 775] = 6'd 0;
         rom[ 776] = 6'd 0;
         rom[ 777] = 6'd 0;

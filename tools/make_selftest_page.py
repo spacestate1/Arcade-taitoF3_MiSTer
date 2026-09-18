@@ -70,7 +70,11 @@ PAGE = [
     # VRAM the CPU writes, not in the renderer. Simulation replays MAME's
     # VRAM and therefore cannot see it. These two rows split the CPU's writes
     # by destination, which is the measurement nothing on the board makes.
-    ("PF WR  : SPR WR",                     1, 1),
+    # was PF WR : SPR WR, whose halves both saturate at FFFF seconds after
+    # boot. MIX LN : BUILDS is {mixer lines, playfield lines BUILT} last
+    # frame; both must read 0100. A BUILDS below 256 is a line whose build
+    # overran and was dropped -- the EAR seam instrument, see EAR-SEAM.md.
+    ("MIX LN : BUILDS",                     1, 1),
     # BORROWED 2026-09-11 from USEDSEQ N-2:N-3 (sprite corruption: closed).
     ("FLUSH:SHORT",                         1, 1),
     ("-- VIDEO PIPELINE / FRAME -----------", 0, 0),

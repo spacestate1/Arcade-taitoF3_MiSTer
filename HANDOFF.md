@@ -151,6 +151,104 @@ the board's sound is MAME's, sample for sample, for the first time.** The story 
 
 ---
 
+## 2026-09-13 — Flip Analog Out was never wired up; the EAR seam gets an instrument
+
+Two things happened. The first is finished and pushed; the second is a
+measurement set up but not yet taken.
+
+### Flip Analog Out: shipped doing nothing, fixed, verified, released
+
+`Rayforce_20260912` advertised **Flip Analog Out** and the option did nothing
+-- worse than nothing, because `eff_no_rotate` still honoured it, so turning it
+on killed rotation and flipped no pixels.
+
+**Cause: `Rayforce.sv` instantiated `rf_video_pipe` without connecting its
+`out_flip` input.** The 2026-09-11 diagnostic revert, which pulled the flip
+machinery out of the top level to bisect the Darius Gaiden palette regression,
+was never undone after the cause turned out to be the ROM-fetch speedup in
+`rf_main.sv`. Quartus ties a dangling input low and deletes everything below
+it: `rf_out_flip` and `rf_ddr_tag_mux` appear **zero** times in 20260912's fit
+report against hundreds of mentions for every other module. The map report said
+so in one line:
+
+```
+; out_flip ; Input ; Warning ; Declared by entity but not connected by instance.
+```
+
+That bisect had already ACQUITTED the flip work -- `flip_11083215`, the build
+that introduced it, renders Zone A correctly -- so the revert was diagnostic
+residue, not a decision.
+
+Fix: three port connections. Verified on the board, not by eye -- six captures
+per state with Rotate: None so the flip was the only variable, scored by
+`tools/rf_flip_check.py`: **100.0 % of pixels identical when rotated 180
+degrees**, 87.5 % upright (which is what proves the picture is not symmetric).
+`FLIP LATE:WLATE` reads `00000000` with the flip on and `FLUSH:SHORT`
+`00000000`, so the tag mux never lost sync sharing the DDR3 port. `WRITE HASH`
+unchanged at `10620931`.
+
+Shipped as **`Rayforce_20260913.rbf`** (stamp `13133540`), pushed as `6385f21`.
+41,607/41,910 ALMs, 551/553 M10K, core clocks met.
+
+**Deploy gotcha, for the third time:** a stale `Rayforce_t.rbf` on the board
+beat every upload, because a lowercase letter sorts above a digit and MiSTer
+takes the highest-sorting `cores/Rayforce_*.rbf`. The first deploy silently
+ran the previous day's bitstream and the `BUILD` row is what caught it.
+Renamed on the board to `Rayforce_0_t_20260912.rbf`.
+
+### The EAR seam: CPU theory dead, renderer theory instrumented
+
+Full register in **[EAR-SEAM.md](EAR-SEAM.md)**, written today. In short:
+
+- The CPU-spills-past-vblank theory the README carried for months is **dead**,
+  measured twice. Re-confirmed today: EAR reads `VCTRL MIN:MAX:N 0304000B` --
+  all 11 scroll writes on raster lines 3-4, where the picture starts at 24.
+  README corrected.
+- **The live theory is a dropped line build.** The playfield Y position is a
+  running accumulator stepped once per COMPLETED build (`rf_video_pf.sv:500`),
+  and a `line_start` arriving while the builder is busy is silently discarded
+  (`rf_video_pf.sv:388`; the header says so at line 48). One dropped build
+  shifts every line below it by one `y_scale` step -- a horizontal seam,
+  invisible unless the playfield is advancing in Y. Which is the symptom.
+- **Nothing counted it.** `n_bld` existed in `rf_video_pipe`, was wired into
+  `rf_selftest` as `vid_lines`, and was then never used. Same shape as the
+  `SPRFOLD` pair that sat unwired for weeks.
+- Page row 19 is now **`MIX LN : BUILDS`** = `{mixer lines, lines built}` last
+  frame, replacing `PF WR : SPR WR`, whose halves both saturate at `FFFF` a
+  second after boot. Must read `01000100`.
+
+**Status: the control is established, the real reading is NOT taken.** On EAR
+attract the row reads `01000100 PASS` across every sample -- 256 and 256, no
+drops -- which is what makes a low reading meaningful. **The question needs a
+scrolling gameplay scene and nobody has driven one yet.** Attract is the wrong
+regime, as it has been for every sizing bug in this project.
+
+What argues against the theory, stated so nobody has to rediscover it: EAR
+attract peaks at **1817-1867 clocks of a 3456-clock line budget (~54 %)**, and
+`MAXFETCH:BUILD` is a real per-frame maximum (`t_bld_max` is cleared at
+`frame_end`), not a warm-up artefact. A drop needs the build to nearly double.
+
+### Open, and what it is blocked on
+
+1. **Read `MIX LN : BUILDS` while EAR scrolls vertically.** Below `0100`
+   confirms and counts it; `01000100` throughout a tearing scene kills the
+   theory and sends the search to line RAM (second suspect in EAR-SEAM.md,
+   testable in MAME with no build).
+2. **The instrument build has a core clock failing by -0.224 ns and must be
+   reseeded before anything ships.** Stamp `13195759`, currently on the board
+   for diagnostics only. TNS equals the slack, so it is ONE path:
+   `rf_video_spr_list:walker|offs[1]` -> sprite RAM's port-B address register,
+   of which **17.534 ns of the 18.118 ns data path is interconnect** --
+   `FF_X35_Y40` to `M10K_X38_Y61`, 21 rows apart. Modules nobody touched;
+   this is the fitter at 99 % ALMs and 551/553 M10K. `SEED` is 8. ALMs went
+   DOWN 5 against the build before it, so nothing was added to cause it.
+3. **Uncommitted:** `EAR-SEAM.md` (new), `README.md`, `rtl/rf_selftest.sv`,
+   `rtl/rf_selftest_page.sv`, `tools/make_selftest_page.py`. The instrument
+   bitstream is in `builds/`, deliberately NOT in `releases/` while its core
+   clock fails.
+
+
+
 ## 2026-09-04 morning — Session handoff, and the board's own verdict on `04074618`
 
 Work moved from session `b5` to session `2e` at 08:45. `b5` released the build
